@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install)",
+      "WebSearch",
+      "WebFetch(domain:trpc.io)",
+      "WebFetch(domain:openai.github.io)",
+      "WebFetch(domain:ai-sdk.dev)",
+      "WebFetch(domain:tanstack.com)",
+      "Bash(tree:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

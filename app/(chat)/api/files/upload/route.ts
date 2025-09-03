@@ -1,7 +1,6 @@
-import { put } from '@vercel/blob';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-
+import { uploadFileToAzure } from '@/lib/storage/azure';
 import { auth } from '@/app/(auth)/auth';
 
 // Use Blob instead of File since File is not available in Node.js environment
@@ -51,12 +50,16 @@ export async function POST(request: Request) {
     const fileBuffer = await file.arrayBuffer();
 
     try {
-      const data = await put(`${filename}`, fileBuffer, {
-        access: 'public',
+      // Get file type from the File object for better content type detection
+      const contentType = (formData.get('file') as File).type || 'application/octet-stream';
+      
+      const data = await uploadFileToAzure(fileBuffer, filename, {
+        contentType,
       });
 
       return NextResponse.json(data);
     } catch (error) {
+      console.error('Azure Blob Storage upload error:', error);
       return NextResponse.json({ error: 'Upload failed' }, { status: 500 });
     }
   } catch (error) {

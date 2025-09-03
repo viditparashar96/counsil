@@ -280,6 +280,75 @@ const PurePreviewMessage = ({
                   </Tool>
                 );
               }
+
+              if (type === 'tool-careerCounseling') {
+                const { toolCallId, state } = part;
+
+                return (
+                  <Tool key={toolCallId} defaultOpen={true}>
+                    <ToolHeader type="tool-careerCounseling" state={state} />
+                    <ToolContent>
+                      {state === 'input-available' && (
+                        <ToolInput input={part.input} />
+                      )}
+                      {state === 'output-available' && (
+                        <ToolOutput
+                          output={
+                            'error' in part.output ? (
+                              <div className="p-2 text-red-500 rounded border">
+                                Error: {String(part.output.error)}
+                              </div>
+                            ) : (
+                              <DocumentToolResult
+                                type="career-counseling"
+                                result={part.output}
+                                isReadonly={isReadonly}
+                              />
+                            )
+                          }
+                          errorText={undefined}
+                        />
+                      )}
+                    </ToolContent>
+                  </Tool>
+                );
+              }
+
+              if (type === 'tool-createImageAnalysisTool') {
+                const { toolCallId, state } = part;
+
+                return (
+                  <Tool key={toolCallId} defaultOpen={true}>
+                    <ToolHeader type="tool-createImageAnalysisTool" state={state} />
+                    <ToolContent>
+                      {state === 'input-available' && (
+                        <ToolInput input={part.input} />
+                      )}
+                      {state === 'output-available' && (
+                        <ToolOutput
+                          output={
+                            'error' in part.output ? (
+                              <div className="p-2 text-red-500 rounded border">
+                                Error: {String(part.output.error)}
+                              </div>
+                            ) : (
+                              <div className="p-4 bg-blue-50 rounded-lg border border-blue-200 dark:bg-blue-950/50">
+                                <h4 className="font-semibold text-blue-900 dark:text-blue-100 mb-2">
+                                  🖼️ Image Analysis ({part.output.analysisType || 'general'})
+                                </h4>
+                                <div className="text-sm text-blue-800 dark:text-blue-200 whitespace-pre-wrap">
+                                  {part.output.analysis || part.output.message}
+                                </div>
+                              </div>
+                            )
+                          }
+                          errorText={undefined}
+                        />
+                      )}
+                    </ToolContent>
+                  </Tool>
+                );
+              }
             })}
 
             {!isReadonly && (

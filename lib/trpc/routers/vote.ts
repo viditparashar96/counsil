@@ -13,6 +13,7 @@ export const voteRouter = createTRPCRouter({
       const { chatId } = input;
       const userId = ctx.session.user.id;
 
+      const { getChatById, getVotesByChatId } = await import('@/lib/db/queries');
       const chat = await getChatById({ id: chatId });
 
       if (!chat) {
@@ -45,6 +46,7 @@ export const voteRouter = createTRPCRouter({
       const { chatId, messageId, type } = input;
       const userId = ctx.session.user.id;
 
+      const { getChatById, voteMessage: voteMessageDb } = await import('@/lib/db/queries');
       const chat = await getChatById({ id: chatId });
 
       if (!chat) {
@@ -61,7 +63,7 @@ export const voteRouter = createTRPCRouter({
         });
       }
 
-      await voteMessage({
+      await voteMessageDb({
         chatId,
         messageId,
         type,

@@ -57,6 +57,44 @@ const getStatusBadge = (status: ToolUIPart['state']) => {
   );
 };
 
+const getToolIcon = (type: string) => {
+  switch (type) {
+    case 'tool-careerCounseling':
+      return '🎯';
+    case 'tool-getWeather':
+      return '🌤️';
+    case 'tool-createDocument':
+      return '📄';
+    case 'tool-updateDocument':
+      return '✏️';
+    case 'tool-requestSuggestions':
+      return '💡';
+    case 'tool-createImageAnalysisTool':
+      return '🖼️';
+    default:
+      return '🔧';
+  }
+};
+
+const getToolDisplayName = (type: string) => {
+  switch (type) {
+    case 'tool-careerCounseling':
+      return 'Career Counseling';
+    case 'tool-getWeather':
+      return 'Weather Check';
+    case 'tool-createDocument':
+      return 'Creating Document';
+    case 'tool-updateDocument':
+      return 'Updating Document';
+    case 'tool-requestSuggestions':
+      return 'Getting Suggestions';
+    case 'tool-createImageAnalysisTool':
+      return 'Analyzing Image';
+    default:
+      return type.replace('tool-', '').replace(/([A-Z])/g, ' $1').trim();
+  }
+};
+
 export const ToolHeader = ({
   className,
   type,
@@ -71,8 +109,8 @@ export const ToolHeader = ({
     {...props}
   >
     <div className="flex items-center gap-2 min-w-0 flex-1">
-      <WrenchIcon className="size-4 text-muted-foreground shrink-0" />
-      <span className="font-medium text-sm truncate">{type}</span>
+      <span className="text-sm shrink-0">{getToolIcon(type)}</span>
+      <span className="font-medium text-sm truncate">{getToolDisplayName(type)}</span>
     </div>
     <div className="flex items-center gap-2 shrink-0">
       {getStatusBadge(state)}

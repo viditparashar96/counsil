@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
-import { put } from '@vercel/blob';
+import { uploadFileToAzure } from '@/lib/storage/azure';
 import { createTRPCRouter, protectedProcedure } from '../init';
 
 // File validation schema
@@ -29,9 +29,8 @@ export const uploadRouter = createTRPCRouter({
           });
         }
 
-        // Upload to Vercel Blob
-        const uploadResult = await put(filename, fileBuffer, {
-          access: 'public',
+        // Upload to Azure Blob Storage
+        const uploadResult = await uploadFileToAzure(fileBuffer, filename, {
           contentType,
         });
 

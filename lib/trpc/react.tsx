@@ -19,11 +19,51 @@ export function TRPCReactProvider({
   const [queryClient] = useState(() => new QueryClient({
     defaultOptions: {
       queries: {
-        staleTime: 5 * 60 * 1000, // 5 minutes
-        retry: 3,
+        // Production optimizations
+        staleTime: 5 * 60 * 1000, // 5 minutes - data stays fresh
+        gcTime: 10 * 60 * 1000, // 10 minutes - cache retention (was cacheTime)
+        retry: (failureCount, error) => {
+          // Smart retry logic for production
+          if (error?.status === 404 || error?.status === 403) return false;
+          return failureCount < 3;
+        },
+        retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+        refetchOnWindowFocus: false, // Disable for better UX
+        refetchOnReconnect: true, // Enable for network recovery
+        refetchIntervalInBackground: false, // Save resources
+        // Performance: Enable background refetching for critical data
+        refetchOnMount: 'always',
+        // Network mode for offline/online scenarios
+        networkMode: 'online',
       },
       mutations: {
-        retry: 1,
+        retry: (failureCount, error) => {
+          // Don't retry client errors (4xx)
+          if (error?.status >= 400 && error?.status < 500) return false;
+          return failureCount < 2;
+        },
+        retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
+        // Network mode for mutations
+        networkMode: 'online',
+      },
+    },
+    // Production error logging with proper error boundary
+    logger: {
+      log: process.env.NODE_ENV === 'development' ? console.log : () => {},
+      warn: process.env.NODE_ENV === 'development' ? console.warn : () => {},
+      error: (error) => {
+        if (process.env.NODE_ENV === 'development') {
+          console.error('TanStack Query Error:', error);
+        } else {
+          // In production, send to monitoring service instead of console
+          // This prevents memory leaks from error accumulation
+          try {
+            // Example: Send to error monitoring service
+            // errorReporting.captureException(error);
+          } catch (e) {
+            // Silently fail to prevent cascading errors
+          }
+        }
       },
     },
   }));

@@ -1,6 +1,7 @@
 import { tool } from '@openai/agents';
 import { z } from 'zod';
 import type { Session } from 'next-auth';
+import OpenAI from 'openai';
 
 // Weather tool for OpenAI Agent SDK
 export const getWeatherTool = tool({
@@ -199,6 +200,82 @@ For comprehensive career guidance, our platform includes specialized agents for:
 
 How can I assist you with your career goals today?`,
           error: error.message,
+        };
+      }
+    },
+  });
+}
+
+// Image analysis tool for OpenAI Agent SDK to handle vision capabilities
+export function createImageAnalysisTool() {
+  const openaiClient = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+
+  return tool({
+    description: 'Analyze images that users have attached to understand their content, read text from images, or answer questions about visual elements',
+    parameters: z.object({
+      imageUrl: z.string().describe('The URL or data URI of the image to analyze'),
+      query: z.string().describe('What specific information to extract or question to answer about the image'),
+      analysisType: z.enum(['general', 'text_extraction', 'document_analysis', 'resume_review']).default('general').describe('The type of analysis to perform'),
+    }),
+    execute: async ({ imageUrl, query, analysisType }) => {
+      try {
+        let systemPrompt = 'You are a helpful assistant that can analyze images and provide detailed information about them.';
+        
+        switch (analysisType) {
+          case 'text_extraction':
+            systemPrompt = 'You are an expert at extracting and transcribing text from images. Provide accurate, complete text extraction.';
+            break;
+          case 'document_analysis':
+            systemPrompt = 'You are an expert at analyzing documents in images. Focus on structure, content, and key information.';
+            break;
+          case 'resume_review':
+            systemPrompt = 'You are a professional resume reviewer. Analyze the resume in the image and provide detailed feedback on formatting, content, and suggestions for improvement.';
+            break;
+        }
+
+        const response = await openaiClient.chat.completions.create({
+          model: 'gpt-4o', // Use GPT-4o which has vision capabilities
+          messages: [
+            {
+              role: 'system',
+              content: systemPrompt
+            },
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: query
+                },
+                {
+                  type: 'image_url',
+                  image_url: {
+                    url: imageUrl
+                  }
+                }
+              ]
+            }
+          ],
+          max_tokens: 2000,
+        });
+
+        const analysisResult = response.choices[0]?.message?.content || 'I was unable to analyze the image.';
+
+        return {
+          success: true,
+          analysis: analysisResult,
+          analysisType,
+          message: `Image Analysis (${analysisType}): ${analysisResult}`,
+        };
+      } catch (error) {
+        console.error('Image analysis tool error:', error);
+        
+        return {
+          success: false,
+          error: error.message,
+          message: `I encountered an error analyzing the image: ${error.message}. Please ensure the image is accessible and try again.`,
         };
       }
     },

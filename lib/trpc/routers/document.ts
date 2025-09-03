@@ -14,12 +14,28 @@ export const documentRouter = createTRPCRouter({
   getById: protectedProcedure
     .input(
       z.object({
-        id: z.string().uuid(),
+        id: z.string(),
       })
     )
     .query(async ({ ctx, input }) => {
       const { id } = input;
       const userId = ctx.session.user.id;
+
+      // Handle special case for 'init' placeholder
+      if (id === 'init') {
+        return [];
+      }
+
+      // Validate UUID for actual document IDs
+      const uuidSchema = z.string().uuid();
+      const validation = uuidSchema.safeParse(id);
+      
+      if (!validation.success) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Invalid document ID format',
+        });
+      }
 
       const documents = await getDocumentsById({ id });
       const [document] = documents;

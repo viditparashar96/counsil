@@ -19,6 +19,7 @@ import {
   updateDocumentTool,
   requestSuggestionsTool,
   careerCounselingTool,
+  createImageAnalysisTool,
 } from '@/lib/ai/tools/openai-agents-tools';
 import { isProductionEnvironment } from '@/lib/constants';
 import { entitlementsByUserType } from '@/lib/ai/entitlements';
@@ -157,6 +158,7 @@ export async function POST(request: Request) {
       updateDocumentTool({ session }),
       requestSuggestionsTool({ session }),
       careerCounselingTool({ session, chatId: id }),
+      createImageAnalysisTool(),
     ];
 
     // Map model IDs to actual OpenAI models
@@ -177,11 +179,50 @@ export async function POST(request: Request) {
       tools,
     });
 
-    // Convert UI messages to text input for the agent
+    // Convert UI messages to proper format for multimodal input
     const lastMessage = uiMessages[uiMessages.length - 1];
-    const userInput = Array.isArray(lastMessage.parts) 
-      ? lastMessage.parts.map(part => part.type === 'text' ? part.text : '[image]').join(' ')
-      : String(lastMessage.content || '');
+    
+    // Check if this message contains images
+    const hasImages = Array.isArray(lastMessage.parts) && 
+      lastMessage.parts.some(part => part.type === 'image');
+    
+    let userInput: string | Array<any>;
+    
+    if (hasImages && Array.isArray(lastMessage.parts)) {
+      // Extract image URLs and text from the message
+      const textParts = lastMessage.parts.filter(part => part.type === 'text');
+      const imageParts = lastMessage.parts.filter(part => part.type === 'image');
+      
+      // Get the user's text query
+      const textQuery = textParts.map(part => part.text).join(' ') || 'Please analyze this image';
+      
+      // Get the first image URL (support multiple images later)
+      const imageUrl = imageParts[0]?.url || imageParts[0]?.image || imageParts[0]?.data;
+      
+      if (imageUrl) {
+        // Determine analysis type based on user's query
+        let analysisType = 'general';
+        const queryLower = textQuery.toLowerCase();
+        
+        if (queryLower.includes('resume') || queryLower.includes('cv')) {
+          analysisType = 'resume_review';
+        } else if (queryLower.includes('text') || queryLower.includes('read') || queryLower.includes('transcribe')) {
+          analysisType = 'text_extraction';
+        } else if (queryLower.includes('document') || queryLower.includes('paper') || queryLower.includes('form')) {
+          analysisType = 'document_analysis';
+        }
+        
+        // Create input that will trigger the image analysis tool
+        userInput = `I need you to analyze an image using the image analysis tool. The image URL is: ${imageUrl}. The user's question is: "${textQuery}". Please use analysis type: ${analysisType}`;
+      } else {
+        // Fallback if no image URL found
+        userInput = textQuery || 'I have attached an image but there seems to be an issue accessing it.';
+      }
+    } else {
+      userInput = Array.isArray(lastMessage.parts) 
+        ? lastMessage.parts.map(part => part.type === 'text' ? part.text : '[file]').join(' ')
+        : String(lastMessage.content || '');
+    }
 
     // Run agent with streaming
     const result = await run(agent, userInput, { 
@@ -207,12 +248,9 @@ export async function POST(request: Request) {
           }
         };
 
-        const sendTextDelta = (delta: string) => {
-          safeEnqueue({
-            type: 'text-delta',
-            textDelta: delta
-          });
-        };
+        const messageId = generateUUID();
+        let textBlockId = generateUUID();
+        let hasStarted = false;
         
         const safeClose = () => {
           if (!isControllerClosed) {
@@ -238,11 +276,32 @@ export async function POST(request: Request) {
               console.log('Raw model event data:', data.type);
               
               if (data.type === 'output_text_delta') {
+                // Send stream start events if this is the first delta
+                if (!hasStarted) {
+                  // Send message start event
+                  safeEnqueue({
+                    type: 'start',
+                    messageId: messageId
+                  });
+                  
+                  // Send text block start event
+                  safeEnqueue({
+                    type: 'text-start',
+                    id: textBlockId
+                  });
+                  
+                  hasStarted = true;
+                }
+                
                 // Text delta event - send to UI in Vercel AI SDK format
                 accumulatedContent += data.delta;
                 console.log('Text delta:', data.delta);
                 
-                sendTextDelta(data.delta);
+                safeEnqueue({
+                  type: 'text-delta',
+                  id: textBlockId,
+                  delta: data.delta
+                });
               }
             }
             
@@ -288,16 +347,33 @@ export async function POST(request: Request) {
 
           console.log('Stream processing completed, waiting for final result...');
           
+          // Send text block end event if we started streaming
+          if (hasStarted) {
+            safeEnqueue({
+              type: 'text-end',
+              id: textBlockId
+            });
+          }
+          
           // Wait for completion and get final output
           await result.completed;
           
           const finalOutput = result.finalOutput || accumulatedContent;
           console.log('Final output length:', finalOutput.length);
           
-          // Save assistant response
+          // Send finish event
+          safeEnqueue({
+            type: 'finish'
+          });
+          
+          // Send final DONE marker
+          controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
+          
+          // Save assistant response with the SAME id used for streaming
+          // so UI interactions (e.g., voting) reference existing DB rows
           await saveMessages({
             messages: [{
-              id: generateUUID(),
+              id: messageId,
               role: 'assistant',
               parts: [{ type: 'text', text: finalOutput }],
               createdAt: new Date(),

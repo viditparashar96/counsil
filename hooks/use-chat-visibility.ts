@@ -1,9 +1,14 @@
 'use client';
 
 import { useMemo } from 'react';
+import useSWR, { useSWRConfig } from 'swr';
+import { unstable_serialize } from 'swr/infinite';
 import { updateChatVisibility } from '@/app/(chat)/actions';
+import {
+  getChatHistoryPaginationKey,
+  type ChatHistory,
+} from '@/components/sidebar-history';
 import type { VisibilityType } from '@/components/visibility-selector';
-import { api } from '@/lib/trpc';
 
 export function useChatVisibility({
   chatId,
@@ -12,41 +17,29 @@ export function useChatVisibility({
   chatId: string;
   initialVisibilityType: VisibilityType;
 }) {
-  const utils = api.useUtils();
-  
-  // Get chat history data to check current visibility
-  const { data } = api.history.getChats.useInfiniteQuery(
-    { limit: 20 },
+  const { mutate, cache } = useSWRConfig();
+  const history: ChatHistory = cache.get('/api/history')?.data;
+
+  const { data: localVisibility, mutate: setLocalVisibility } = useSWR(
+    `${chatId}-visibility`,
+    null,
     {
-      getNextPageParam: (lastPage) => {
-        if (!lastPage.hasMore) return undefined;
-        const lastChat = lastPage.chats.at(-1);
-        return lastChat ? { endingBefore: lastChat.id } : undefined;
-      },
-      staleTime: 30 * 1000, // 30 seconds
-    }
+      fallbackData: initialVisibilityType,
+    },
   );
 
   const visibilityType = useMemo(() => {
-    if (!data?.pages) return initialVisibilityType;
-    
-    // Find the chat in all pages
-    for (const page of data.pages) {
-      const chat = page.chats.find((chat) => chat.id === chatId);
-      if (chat) {
-        return chat.visibility;
-      }
-    }
-    
-    return 'private'; // Default if chat not found
-  }, [data, chatId, initialVisibilityType]);
+    if (!history) return localVisibility;
+    const chat = history.chats.find((chat) => chat.id === chatId);
+    if (!chat) return 'private';
+    return chat.visibility;
+  }, [history, chatId, localVisibility]);
 
-  const setVisibilityType = async (updatedVisibilityType: VisibilityType) => {
-    // Invalidate chat history to refetch with updated visibility
-    await utils.history.getChats.invalidate();
+  const setVisibilityType = (updatedVisibilityType: VisibilityType) => {
+    setLocalVisibility(updatedVisibilityType);
+    mutate(unstable_serialize(getChatHistoryPaginationKey));
 
-    // Update the visibility on the server
-    await updateChatVisibility({
+    updateChatVisibility({
       chatId: chatId,
       visibility: updatedVisibilityType,
     });

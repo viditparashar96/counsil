@@ -5,6 +5,7 @@ import { voteRouter } from './vote';
 import { documentRouter } from './document';
 import { suggestionsRouter } from './suggestions';
 import { uploadRouter } from './upload';
+import { agentsRouter } from './agents';
 
 /**
  * This is the primary router for your server.
@@ -18,6 +19,7 @@ export const appRouter = createTRPCRouter({
   document: documentRouter,
   suggestions: suggestionsRouter,
   upload: uploadRouter,
+  agents: agentsRouter,
 });
 
 // Export type definition of API

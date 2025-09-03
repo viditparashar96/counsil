@@ -45,12 +45,22 @@ function PureMessages({
 
   useDataStream();
 
+  // Empty state: center greeting without stick-to-bottom behavior
+  if (messages.length === 0) {
+    return (
+      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto">
+        <div className={cn('h-full max-w-4xl mx-auto px-4 flex items-center justify-center')}>
+          <Greeting />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div ref={messagesContainerRef} className="flex-1 overflow-y-auto">
       <Conversation className="flex flex-col min-w-0 gap-6 pt-4 pb-32 px-4 max-w-4xl mx-auto">
         <ConversationContent className="flex flex-col gap-6">
-          {messages.length === 0 && <Greeting />}
-
+          
           {messages.map((message, index) => (
             <PreviewMessage
               key={message.id}

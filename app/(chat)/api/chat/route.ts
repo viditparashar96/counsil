@@ -1,11 +1,5 @@
-import {
-  convertToModelMessages,
-  createUIMessageStream,
-  JsonToSseTransformStream,
-  smoothStream,
-  stepCountIs,
-  streamText,
-} from 'ai';
+import { Agent, run } from '@openai/agents';
+import OpenAI from 'openai';
 import { auth, type UserType } from '@/app/(auth)/auth';
 import { type RequestHints, systemPrompt } from '@/lib/ai/prompts';
 import {
@@ -19,12 +13,14 @@ import {
 } from '@/lib/db/queries';
 import { convertToUIMessages, generateUUID } from '@/lib/utils';
 import { generateTitleFromUserMessage } from '../../actions';
-import { createDocument } from '@/lib/ai/tools/create-document';
-import { updateDocument } from '@/lib/ai/tools/update-document';
-import { requestSuggestions } from '@/lib/ai/tools/request-suggestions';
-import { getWeather } from '@/lib/ai/tools/get-weather';
+import { 
+  getWeatherTool,
+  createDocumentTool,
+  updateDocumentTool,
+  requestSuggestionsTool,
+  careerCounselingTool,
+} from '@/lib/ai/tools/openai-agents-tools';
 import { isProductionEnvironment } from '@/lib/constants';
-import { myProvider } from '@/lib/ai/providers';
 import { entitlementsByUserType } from '@/lib/ai/entitlements';
 import { postRequestBodySchema, type PostRequestBody } from './schema';
 import { geolocation } from '@vercel/functions';
@@ -61,6 +57,11 @@ export function getStreamContext() {
 
   return globalStreamContext;
 }
+
+// Create OpenAI client
+const openaiClient = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 export async function POST(request: Request) {
   let requestBody: PostRequestBody;
@@ -149,81 +150,193 @@ export async function POST(request: Request) {
     const streamId = generateUUID();
     await createStreamId({ streamId, chatId: id });
 
-    const stream = createUIMessageStream({
-      execute: ({ writer: dataStream }) => {
-        const result = streamText({
-          model: myProvider.languageModel(selectedChatModel),
-          system: systemPrompt({ selectedChatModel, requestHints }),
-          messages: convertToModelMessages(uiMessages),
-          stopWhen: stepCountIs(5),
-          experimental_activeTools:
-            selectedChatModel === 'chat-model-reasoning'
-              ? []
-              : [
-                  'getWeather',
-                  'createDocument',
-                  'updateDocument',
-                  'requestSuggestions',
-                ],
-          experimental_transform: smoothStream({ chunking: 'word' }),
-          tools: {
-            getWeather,
-            createDocument: createDocument({ session, dataStream }),
-            updateDocument: updateDocument({ session, dataStream }),
-            requestSuggestions: requestSuggestions({
-              session,
-              dataStream,
-            }),
-          },
-          experimental_telemetry: {
-            isEnabled: isProductionEnvironment,
-            functionId: 'stream-text',
-          },
-        });
+    // Create OpenAI Agent with tools
+    const tools = selectedChatModel === 'chat-model-reasoning' ? [] : [
+      getWeatherTool,
+      createDocumentTool({ session }),
+      updateDocumentTool({ session }),
+      requestSuggestionsTool({ session }),
+      careerCounselingTool({ session, chatId: id }),
+    ];
 
-        result.consumeStream();
+    // Map model IDs to actual OpenAI models
+    const modelMapping = {
+      'chat-model': 'gpt-4o',
+      'chat-model-reasoning': 'gpt-4o',
+      'title-model': 'gpt-4o-mini',
+      'artifact-model': 'gpt-4o',
+    };
 
-        dataStream.merge(
-          result.toUIMessageStream({
-            sendReasoning: true,
-          }),
-        );
-      },
-      generateId: generateUUID,
-      onFinish: async ({ messages }) => {
-        await saveMessages({
-          messages: messages.map((message) => ({
-            id: message.id,
-            role: message.role,
-            parts: message.parts,
-            createdAt: new Date(),
-            attachments: [],
-            chatId: id,
-          })),
-        });
-      },
-      onError: () => {
-        return 'Oops, an error occurred!';
+    const actualModel = modelMapping[selectedChatModel as keyof typeof modelMapping] || 'gpt-4o';
+
+    const agent = new Agent({
+      name: 'AI Assistant',
+      instructions: systemPrompt({ selectedChatModel, requestHints }),
+      model: actualModel,
+      client: openaiClient,
+      tools,
+    });
+
+    // Convert UI messages to text input for the agent
+    const lastMessage = uiMessages[uiMessages.length - 1];
+    const userInput = Array.isArray(lastMessage.parts) 
+      ? lastMessage.parts.map(part => part.type === 'text' ? part.text : '[image]').join(' ')
+      : String(lastMessage.content || '');
+
+    // Run agent with streaming
+    const result = await run(agent, userInput, { 
+      stream: true,
+    });
+
+    // Create compatible streaming response using the proper async iterator pattern
+    const stream = new ReadableStream({
+      async start(controller) {
+        const encoder = new TextEncoder();
+        let accumulatedContent = '';
+        let isControllerClosed = false;
+        
+        const safeEnqueue = (data: any) => {
+          if (!isControllerClosed) {
+            try {
+              // Format as proper SSE for Vercel AI SDK
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+            } catch (error) {
+              console.error('Controller enqueue error:', error);
+              isControllerClosed = true;
+            }
+          }
+        };
+
+        const sendTextDelta = (delta: string) => {
+          safeEnqueue({
+            type: 'text-delta',
+            textDelta: delta
+          });
+        };
+        
+        const safeClose = () => {
+          if (!isControllerClosed) {
+            try {
+              controller.close();
+              isControllerClosed = true;
+            } catch (error) {
+              console.error('Controller close error:', error);
+            }
+          }
+        };
+        
+        try {
+          console.log('Starting OpenAI Agent SDK stream processing...');
+          
+          // Process events from the agent stream
+          for await (const event of result) {
+            console.log('Processing event:', event.type);
+            
+            // Handle different event types from OpenAI Agent SDK
+            if (event.type === 'raw_model_stream_event') {
+              const data = event.data;
+              console.log('Raw model event data:', data.type);
+              
+              if (data.type === 'output_text_delta') {
+                // Text delta event - send to UI in Vercel AI SDK format
+                accumulatedContent += data.delta;
+                console.log('Text delta:', data.delta);
+                
+                sendTextDelta(data.delta);
+              }
+            }
+            
+            if (event.type === 'run_item_stream_event') {
+              console.log('Run item event:', event.item.type);
+              
+              // Tool calls or other run items
+              if (event.item.type === 'function_call') {
+                console.log('Function call:', event.item.name);
+                safeEnqueue({
+                  type: 'tool-call',
+                  toolCallId: event.item.callId,
+                  toolName: event.item.name,
+                  args: JSON.parse(event.item.arguments || '{}'),
+                });
+              }
+              
+              if (event.item.type === 'function_call_result') {
+                console.log('Function call result');
+                safeEnqueue({
+                  type: 'tool-result',
+                  toolCallId: event.item.callId,
+                  result: event.item.output,
+                });
+              }
+            }
+
+            if (event.type === 'agent_updated_stream_event') {
+              console.log('Agent updated:', event.agent.name);
+              // Agent handoff or update events
+              safeEnqueue({
+                type: 'data',
+                data: {
+                  type: 'agent-response',
+                  content: {
+                    agentUsed: event.agent.name,
+                    response: 'Agent updated',
+                  }
+                }
+              });
+            }
+          }
+
+          console.log('Stream processing completed, waiting for final result...');
+          
+          // Wait for completion and get final output
+          await result.completed;
+          
+          const finalOutput = result.finalOutput || accumulatedContent;
+          console.log('Final output length:', finalOutput.length);
+          
+          // Save assistant response
+          await saveMessages({
+            messages: [{
+              id: generateUUID(),
+              role: 'assistant',
+              parts: [{ type: 'text', text: finalOutput }],
+              createdAt: new Date(),
+              attachments: [],
+              chatId: id,
+            }],
+          });
+
+          console.log('Messages saved, closing stream...');
+          safeClose();
+          
+        } catch (error) {
+          console.error('OpenAI Agent SDK streaming error:', error);
+          if (!isControllerClosed) {
+            try {
+              controller.error(error);
+            } catch (controllerError) {
+              console.error('Controller error failed:', controllerError);
+            }
+          }
+        }
+      }
+    });
+
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'x-vercel-ai-ui-message-stream': 'v1', // Required for Vercel AI SDK
       },
     });
 
-    const streamContext = getStreamContext();
-
-    if (streamContext) {
-      return new Response(
-        await streamContext.resumableStream(streamId, () =>
-          stream.pipeThrough(new JsonToSseTransformStream()),
-        ),
-      );
-    } else {
-      return new Response(stream.pipeThrough(new JsonToSseTransformStream()));
-    }
   } catch (error) {
     if (error instanceof ChatSDKError) {
       return error.toResponse();
     }
 
-    console.error('Unhandled error in chat API:', error);
+    console.error('Unhandled error in OpenAI Agent SDK chat API:', error);
     return new ChatSDKError('offline:chat').toResponse();
   }
 }

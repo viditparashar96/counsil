@@ -20,6 +20,8 @@ import { ChatSDKError } from '@/lib/errors';
 import type { Attachment, ChatMessage } from '@/lib/types';
 import { useDataStream } from './data-stream-provider';
 import { api } from '@/lib/trpc';
+import { useAgentHandoffs } from '@/hooks/use-agent-handoffs';
+import { AgentHandoffBanner } from './agent-handoff-banner';
 // Removed: explicit top loader chip; we use gradient bar as the loader now
 
 export function Chat({
@@ -46,6 +48,14 @@ export function Chat({
 
   const { setDataStream } = useDataStream();
   const utils = api.useUtils();
+  
+  const {
+    handoffState,
+    handleHandoff,
+    dismissHandoff,
+    processAgentResponse,
+    isHandoffLoading,
+  } = useAgentHandoffs(id);
 
   const [input, setInput] = useState<string>('');
 
@@ -79,6 +89,11 @@ export function Chat({
     }),
     onData: (dataPart) => {
       setDataStream((ds) => (ds ? [...ds, dataPart] : []));
+      
+      // Process agent responses for handoff suggestions
+      if (dataPart.type === 'data') {
+        processAgentResponse(dataPart.data);
+      }
     },
     onFinish: () => {
       // Invalidate chat history to show the new message
@@ -148,35 +163,85 @@ export function Chat({
             (status === 'submitted' || status === 'streaming') && 'ai-gradient-top',
           )}
         >
-          <Messages
-            chatId={id}
-            status={status}
-            votes={votes}
-            messages={messages}
-            setMessages={setMessages}
-            regenerate={regenerate}
-            isReadonly={isReadonly}
-            isArtifactVisible={isArtifactVisible}
-          />
-
-          <div className="sticky bottom-0 flex gap-2 px-4 pb-4 mx-auto w-full bg-background md:pb-6 md:max-w-3xl z-[1] border-t-0">
-            {!isReadonly && (
-              <MultimodalInput
+          {messages.length === 0 ? (
+            // New chat: center greeting and input vertically
+            <div className="flex-1 flex items-center">
+              <div className="mx-auto w-full md:max-w-3xl px-4 flex flex-col gap-6">
+                <div>
+                  {/* Centered welcome UI */}
+                  <Messages
+                    chatId={id}
+                    status={status}
+                    votes={votes}
+                    messages={messages}
+                    setMessages={setMessages}
+                    regenerate={regenerate}
+                    isReadonly={isReadonly}
+                    isArtifactVisible={isArtifactVisible}
+                  />
+                </div>
+                {!isReadonly && (
+                  <MultimodalInput
+                    chatId={id}
+                    input={input}
+                    setInput={setInput}
+                    status={status}
+                    stop={stop}
+                    attachments={attachments}
+                    setAttachments={setAttachments}
+                    messages={messages}
+                    setMessages={setMessages}
+                    sendMessage={sendMessage}
+                    selectedVisibilityType={visibilityType}
+                    selectedModelId={initialChatModel}
+                  />
+                )}
+              </div>
+            </div>
+          ) : (
+            <>
+              <Messages
                 chatId={id}
-                input={input}
-                setInput={setInput}
                 status={status}
-                stop={stop}
-                attachments={attachments}
-                setAttachments={setAttachments}
+                votes={votes}
                 messages={messages}
                 setMessages={setMessages}
-                sendMessage={sendMessage}
-                selectedVisibilityType={visibilityType}
-                selectedModelId={initialChatModel}
+                regenerate={regenerate}
+                isReadonly={isReadonly}
+                isArtifactVisible={isArtifactVisible}
               />
-            )}
-          </div>
+
+              {/* Agent Handoff Banner */}
+              {handoffState.isHandoffAvailable && handoffState.suggestedAgent && handoffState.handoffMessage && (
+                <AgentHandoffBanner
+                  suggestedAgent={handoffState.suggestedAgent}
+                  handoffMessage={handoffState.handoffMessage}
+                  onHandoff={handleHandoff}
+                  onDismiss={dismissHandoff}
+                  isLoading={isHandoffLoading}
+                />
+              )}
+
+              <div className="sticky bottom-0 flex gap-2 px-4 pb-4 mx-auto w-full bg-background md:pb-6 md:max-w-3xl z-[1] border-t-0">
+                {!isReadonly && (
+                  <MultimodalInput
+                    chatId={id}
+                    input={input}
+                    setInput={setInput}
+                    status={status}
+                    stop={stop}
+                    attachments={attachments}
+                    setAttachments={setAttachments}
+                    messages={messages}
+                    setMessages={setMessages}
+                    sendMessage={sendMessage}
+                    selectedVisibilityType={visibilityType}
+                    selectedModelId={initialChatModel}
+                  />
+                )}
+              </div>
+            </>
+          )}
         </div>
       </div>
 

@@ -1,10 +1,4 @@
 import {
-  customProvider,
-  extractReasoningMiddleware,
-  wrapLanguageModel,
-} from 'ai';
-import { gateway } from '@ai-sdk/gateway';
-import {
   artifactModel,
   chatModel,
   reasoningModel,
@@ -12,23 +6,19 @@ import {
 } from './models.test';
 import { isTestEnvironment } from '../constants';
 
+// Import the new OpenAI Agent SDK provider
+import { myProvider as openaiAgentsProvider } from './providers-openai-agents';
+
 export const myProvider = isTestEnvironment
-  ? customProvider({
-      languageModels: {
-        'chat-model': chatModel,
-        'chat-model-reasoning': reasoningModel,
-        'title-model': titleModel,
-        'artifact-model': artifactModel,
-      },
-    })
-  : customProvider({
-      languageModels: {
-        'chat-model': gateway.languageModel('xai/grok-2-vision-1212'),
-        'chat-model-reasoning': wrapLanguageModel({
-          model: gateway.languageModel('xai/grok-3-mini-beta'),
-          middleware: extractReasoningMiddleware({ tagName: 'think' }),
-        }),
-        'title-model': gateway.languageModel('xai/grok-2-1212'),
-        'artifact-model': gateway.languageModel('xai/grok-2-1212'),
-      },
-    });
+  ? {
+      languageModel: (modelId: string) => {
+        const testModels = {
+          'chat-model': chatModel,
+          'chat-model-reasoning': reasoningModel,
+          'title-model': titleModel,
+          'artifact-model': artifactModel,
+        };
+        return testModels[modelId as keyof typeof testModels] || chatModel;
+      }
+    }
+  : openaiAgentsProvider;

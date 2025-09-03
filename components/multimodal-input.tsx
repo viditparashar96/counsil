@@ -13,6 +13,7 @@ import {
 } from 'react';
 import { toast } from 'sonner';
 import { useLocalStorage, useWindowSize } from 'usehooks-ts';
+import { api } from '@/lib/trpc';
 
 import { ArrowUpIcon, PaperclipIcon, StopIcon } from './icons';
 import { PreviewAttachment } from './preview-attachment';
@@ -39,6 +40,21 @@ import type { Attachment, ChatMessage } from '@/lib/types';
 import { chatModels } from '@/lib/ai/models';
 import { saveChatModelAsCookie } from '@/app/(chat)/actions';
 import { startTransition } from 'react';
+
+// Helper function to convert file to base64
+const fileToBase64 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => {
+      const result = reader.result as string;
+      // Remove the data:image/jpeg;base64, prefix
+      const base64 = result.split(',')[1];
+      resolve(base64);
+    };
+    reader.onerror = (error) => reject(error);
+  });
+};
 
 function PureMultimodalInput({
   chatId,
@@ -117,6 +133,13 @@ function PureMultimodalInput({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadQueue, setUploadQueue] = useState<Array<string>>([]);
+  
+  // tRPC file upload mutation
+  const uploadFileMutation = api.upload.uploadFile.useMutation({
+    onError: (error) => {
+      toast.error(error.message || 'Failed to upload file');
+    },
+  });
 
   const submitForm = useCallback(() => {
     window.history.replaceState({}, '', `/chat/${chatId}`);
@@ -157,29 +180,36 @@ function PureMultimodalInput({
   ]);
 
   const uploadFile = async (file: File) => {
-    const formData = new FormData();
-    formData.append('file', file);
+    // Validate file type
+    if (!['image/jpeg', 'image/png'].includes(file.type)) {
+      throw new Error('Only JPEG and PNG images are supported');
+    }
+
+    // Validate file size (5MB limit)
+    if (file.size > 5 * 1024 * 1024) {
+      throw new Error('File size must be less than 5MB');
+    }
 
     try {
-      const response = await fetch('/api/files/upload', {
-        method: 'POST',
-        body: formData,
+      // Convert file to base64
+      const base64Data = await fileToBase64(file);
+      
+      // Upload using tRPC mutation
+      const result = await uploadFileMutation.mutateAsync({
+        filename: file.name,
+        contentType: file.type as 'image/jpeg' | 'image/png',
+        size: file.size,
+        data: base64Data,
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        const { url, pathname, contentType } = data;
-
-        return {
-          url,
-          name: pathname,
-          contentType: contentType,
-        };
-      }
-      const { error } = await response.json();
-      toast.error(error);
+      return {
+        url: result.url,
+        name: result.pathname,
+        contentType: file.type,
+      };
     } catch (error) {
-      toast.error('Failed to upload file, please try again!');
+      console.error('Upload error:', error);
+      throw error;
     }
   };
 
@@ -190,23 +220,38 @@ function PureMultimodalInput({
       setUploadQueue(files.map((file) => file.name));
 
       try {
-        const uploadPromises = files.map((file) => uploadFile(file));
-        const uploadedAttachments = await Promise.all(uploadPromises);
-        const successfullyUploadedAttachments = uploadedAttachments.filter(
-          (attachment) => attachment !== undefined,
+        const uploadResults = await Promise.allSettled(
+          files.map(async (file) => {
+            try {
+              return await uploadFile(file);
+            } catch (error) {
+              toast.error(`Failed to upload ${file.name}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+              return null;
+            }
+          })
         );
+
+        const successfulUploads = uploadResults
+          .map((result) => result.status === 'fulfilled' ? result.value : null)
+          .filter((attachment): attachment is NonNullable<typeof attachment> => attachment !== null);
 
         setAttachments((currentAttachments) => [
           ...currentAttachments,
-          ...successfullyUploadedAttachments,
+          ...successfulUploads,
         ]);
+
+        // Show success message for successful uploads
+        if (successfulUploads.length > 0) {
+          toast.success(`Successfully uploaded ${successfulUploads.length} file(s)`);
+        }
       } catch (error) {
-        console.error('Error uploading files!', error);
+        console.error('Error in file upload handler:', error);
+        toast.error('An unexpected error occurred while uploading files');
       } finally {
         setUploadQueue([]);
       }
     },
-    [setAttachments],
+    [setAttachments, uploadFile],
   );
 
   const { isAtBottom, scrollToBottom } = useScrollToBottom();

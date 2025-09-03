@@ -7,7 +7,12 @@
       "WebFetch(domain:openai.github.io)",
       "WebFetch(domain:ai-sdk.dev)",
       "WebFetch(domain:tanstack.com)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__get-library-docs",
+      "Bash(pnpm add:*)",
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)"
     ],
     "deny": [],
     "ask": []

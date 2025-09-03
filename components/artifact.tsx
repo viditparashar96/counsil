@@ -8,10 +8,8 @@ import {
   useEffect,
   useState,
 } from 'react';
-import useSWR, { useSWRConfig } from 'swr';
 import { useDebounceCallback, useWindowSize } from 'usehooks-ts';
 import type { Document, Vote } from '@/lib/db/schema';
-import { fetcher } from '@/lib/utils';
 import { MultimodalInput } from './multimodal-input';
 import { Toolbar } from './toolbar';
 import { VersionFooter } from './version-footer';
@@ -28,6 +26,7 @@ import equal from 'fast-deep-equal';
 import type { UseChatHelpers } from '@ai-sdk/react';
 import type { VisibilityType } from './visibility-selector';
 import type { Attachment, ChatMessage } from '@/lib/types';
+import { api } from '@/lib/trpc';
 
 export const artifactDefinitions = [
   textArtifact,
@@ -87,16 +86,60 @@ function PureArtifact({
 }) {
   const { artifact, setArtifact, metadata, setMetadata } = useArtifact();
 
+  // Use tRPC query for document data with proper caching and type safety
   const {
     data: documents,
     isLoading: isDocumentsFetching,
-    mutate: mutateDocuments,
-  } = useSWR<Array<Document>>(
-    artifact.documentId !== 'init' && artifact.status !== 'streaming'
-      ? `/api/document?id=${artifact.documentId}`
-      : null,
-    fetcher,
+    refetch: refetchDocuments,
+  } = api.document.getById.useQuery(
+    { id: artifact.documentId },
+    {
+      enabled: artifact.documentId !== 'init' && artifact.status !== 'streaming',
+      staleTime: 5 * 1000, // 5 seconds since documents change frequently
+      refetchOnWindowFocus: false,
+    }
   );
+
+  // Document save mutation with optimistic updates
+  const saveDocumentMutation = api.document.save.useMutation({
+    onMutate: async (variables) => {
+      // Cancel any outgoing refetches
+      await api.document.getById.cancel({ id: variables.id });
+      
+      // Snapshot the previous value
+      const previousDocuments = api.document.getById.getData({ id: variables.id });
+      
+      // Optimistically update with the new document
+      const newDocument: Document = {
+        id: variables.id,
+        title: variables.title,
+        kind: variables.kind as any,
+        content: variables.content,
+        createdAt: new Date(),
+        userId: 'user', // This will be set correctly by the server
+      };
+      
+      api.document.getById.setData(
+        { id: variables.id },
+        (oldDocuments) => {
+          if (!oldDocuments) return [newDocument];
+          return [...oldDocuments, newDocument];
+        }
+      );
+      
+      return { previousDocuments };
+    },
+    onError: (error, variables, context) => {
+      // Revert the optimistic update on error
+      if (context?.previousDocuments) {
+        api.document.getById.setData({ id: variables.id }, context.previousDocuments);
+      }
+    },
+    onSuccess: () => {
+      // Refetch to get the latest data from server
+      refetchDocuments();
+    },
+  });
 
   const [mode, setMode] = useState<'edit' | 'diff'>('edit');
   const [document, setDocument] = useState<Document | null>(null);
@@ -120,54 +163,43 @@ function PureArtifact({
   }, [documents, setArtifact]);
 
   useEffect(() => {
-    mutateDocuments();
-  }, [artifact.status, mutateDocuments]);
+    // Refetch documents when artifact status changes
+    if (artifact.status !== 'streaming') {
+      refetchDocuments();
+    }
+  }, [artifact.status, refetchDocuments]);
 
-  const { mutate } = useSWRConfig();
   const [isContentDirty, setIsContentDirty] = useState(false);
 
   const handleContentChange = useCallback(
-    (updatedContent: string) => {
-      if (!artifact) return;
+    async (updatedContent: string) => {
+      if (!artifact || !artifact.documentId || artifact.documentId === 'init') return;
 
-      mutate<Array<Document>>(
-        `/api/document?id=${artifact.documentId}`,
-        async (currentDocuments) => {
-          if (!currentDocuments) return undefined;
+      const currentDocument = documents?.at(-1);
+      if (!currentDocument || !currentDocument.content) {
+        setIsContentDirty(false);
+        return;
+      }
 
-          const currentDocument = currentDocuments.at(-1);
-
-          if (!currentDocument || !currentDocument.content) {
-            setIsContentDirty(false);
-            return currentDocuments;
-          }
-
-          if (currentDocument.content !== updatedContent) {
-            await fetch(`/api/document?id=${artifact.documentId}`, {
-              method: 'POST',
-              body: JSON.stringify({
-                title: artifact.title,
-                content: updatedContent,
-                kind: artifact.kind,
-              }),
-            });
-
-            setIsContentDirty(false);
-
-            const newDocument = {
-              ...currentDocument,
-              content: updatedContent,
-              createdAt: new Date(),
-            };
-
-            return [...currentDocuments, newDocument];
-          }
-          return currentDocuments;
-        },
-        { revalidate: false },
-      );
+      if (currentDocument.content !== updatedContent) {
+        try {
+          setIsContentDirty(true);
+          
+          await saveDocumentMutation.mutateAsync({
+            id: artifact.documentId,
+            title: artifact.title,
+            content: updatedContent,
+            kind: artifact.kind as 'text' | 'code' | 'markdown',
+          });
+          
+          setIsContentDirty(false);
+        } catch (error) {
+          console.error('Failed to save document:', error);
+          setIsContentDirty(false);
+        }
+      }
     },
-    [artifact, mutate],
+    [artifact, documents, saveDocumentMutation],
   );
 
   const debouncedHandleContentChange = useDebounceCallback(

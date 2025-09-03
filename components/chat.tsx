@@ -3,17 +3,14 @@
 import { DefaultChatTransport } from 'ai';
 import { useChat } from '@ai-sdk/react';
 import { useEffect, useState } from 'react';
-import useSWR, { useSWRConfig } from 'swr';
 import { ChatHeader } from '@/components/chat-header';
 import type { Vote } from '@/lib/db/schema';
-import { fetcher, fetchWithErrorHandlers, generateUUID, cn } from '@/lib/utils';
+import { fetchWithErrorHandlers, generateUUID, cn } from '@/lib/utils';
 import { Artifact } from './artifact';
 import { MultimodalInput } from './multimodal-input';
 import { Messages } from './messages';
 import type { VisibilityType } from './visibility-selector';
 import { useArtifactSelector } from '@/hooks/use-artifact';
-import { unstable_serialize } from 'swr/infinite';
-import { getChatHistoryPaginationKey } from './sidebar-history';
 import { toast } from './toast';
 import type { Session } from 'next-auth';
 import { useSearchParams } from 'next/navigation';
@@ -22,6 +19,8 @@ import { useAutoResume } from '@/hooks/use-auto-resume';
 import { ChatSDKError } from '@/lib/errors';
 import type { Attachment, ChatMessage } from '@/lib/types';
 import { useDataStream } from './data-stream-provider';
+import { api } from '@/lib/trpc';
+// Removed: explicit top loader chip; we use gradient bar as the loader now
 
 export function Chat({
   id,
@@ -45,8 +44,8 @@ export function Chat({
     initialVisibilityType,
   });
 
-  const { mutate } = useSWRConfig();
   const { setDataStream } = useDataStream();
+  const utils = api.useUtils();
 
   const [input, setInput] = useState<string>('');
 
@@ -82,7 +81,8 @@ export function Chat({
       setDataStream((ds) => (ds ? [...ds, dataPart] : []));
     },
     onFinish: () => {
-      mutate(unstable_serialize(getChatHistoryPaginationKey));
+      // Invalidate chat history to show the new message
+      utils.history.getChats.invalidate();
     },
     onError: (error) => {
       if (error instanceof ChatSDKError) {
@@ -111,9 +111,14 @@ export function Chat({
     }
   }, [query, sendMessage, hasAppendedQuery, id]);
 
-  const { data: votes } = useSWR<Array<Vote>>(
-    messages.length >= 2 ? `/api/vote?chatId=${id}` : null,
-    fetcher,
+  // Use tRPC query for votes data with proper caching and type safety
+  const { data: votes } = api.vote.getVotes.useQuery(
+    { chatId: id },
+    {
+      enabled: messages.length >= 2,
+      staleTime: 10 * 1000, // 10 seconds
+      refetchOnWindowFocus: false,
+    }
   );
 
   const [attachments, setAttachments] = useState<Array<Attachment>>([]);
@@ -136,34 +141,42 @@ export function Chat({
           session={session}
         />
 
-        <Messages
-          chatId={id}
-          status={status}
-          votes={votes}
-          messages={messages}
-          setMessages={setMessages}
-          regenerate={regenerate}
-          isReadonly={isReadonly}
-          isArtifactVisible={isArtifactVisible}
-        />
-
-        <div className="sticky bottom-0 flex gap-2 px-4 pb-4 mx-auto w-full bg-background md:pb-6 md:max-w-3xl z-[1] border-t-0">
-          {!isReadonly && (
-            <MultimodalInput
-              chatId={id}
-              input={input}
-              setInput={setInput}
-              status={status}
-              stop={stop}
-              attachments={attachments}
-              setAttachments={setAttachments}
-              messages={messages}
-              setMessages={setMessages}
-              sendMessage={sendMessage}
-              selectedVisibilityType={visibilityType}
-              selectedModelId={initialChatModel}
-            />
+        {/* Content area gets a Gemini-style gradient bar at the very top */}
+        <div
+          className={cn(
+            'relative ai-top-shadow flex-1 flex flex-col',
+            (status === 'submitted' || status === 'streaming') && 'ai-gradient-top',
           )}
+        >
+          <Messages
+            chatId={id}
+            status={status}
+            votes={votes}
+            messages={messages}
+            setMessages={setMessages}
+            regenerate={regenerate}
+            isReadonly={isReadonly}
+            isArtifactVisible={isArtifactVisible}
+          />
+
+          <div className="sticky bottom-0 flex gap-2 px-4 pb-4 mx-auto w-full bg-background md:pb-6 md:max-w-3xl z-[1] border-t-0">
+            {!isReadonly && (
+              <MultimodalInput
+                chatId={id}
+                input={input}
+                setInput={setInput}
+                status={status}
+                stop={stop}
+                attachments={attachments}
+                setAttachments={setAttachments}
+                messages={messages}
+                setMessages={setMessages}
+                sendMessage={sendMessage}
+                selectedVisibilityType={visibilityType}
+                selectedModelId={initialChatModel}
+              />
+            )}
+          </div>
         </div>
       </div>
 

@@ -1,4 +1,3 @@
-import { useSWRConfig } from 'swr';
 import { useCopyToClipboard } from 'usehooks-ts';
 
 import type { Vote } from '@/lib/db/schema';
@@ -9,6 +8,7 @@ import { memo } from 'react';
 import equal from 'fast-deep-equal';
 import { toast } from 'sonner';
 import type { ChatMessage } from '@/lib/types';
+import { api } from '@/lib/trpc';
 
 export function PureMessageActions({
   chatId,
@@ -21,8 +21,54 @@ export function PureMessageActions({
   vote: Vote | undefined;
   isLoading: boolean;
 }) {
-  const { mutate } = useSWRConfig();
+  const utils = api.useUtils();
   const [_, copyToClipboard] = useCopyToClipboard();
+
+  // Vote mutation with optimistic updates
+  const voteMutation = api.vote.voteMessage.useMutation({
+    onMutate: async (variables) => {
+      // Cancel any outgoing refetches
+      await utils.vote.getVotes.cancel({ chatId });
+      
+      // Snapshot the previous value
+      const previousVotes = utils.vote.getVotes.getData({ chatId });
+      
+      // Optimistically update the vote
+      utils.vote.getVotes.setData(
+        { chatId },
+        (oldVotes) => {
+          if (!oldVotes) return [];
+          
+          // Remove any existing vote for this message
+          const votesWithoutCurrent = oldVotes.filter(
+            (v) => v.messageId !== variables.messageId
+          );
+          
+          // Add the new vote
+          return [
+            ...votesWithoutCurrent,
+            {
+              chatId: variables.chatId,
+              messageId: variables.messageId,
+              isUpvoted: variables.type === 'up',
+            } as Vote,
+          ];
+        }
+      );
+      
+      return { previousVotes };
+    },
+    onError: (error, variables, context) => {
+      // Revert the optimistic update on error
+      if (context?.previousVotes) {
+        utils.vote.getVotes.setData({ chatId }, context.previousVotes);
+      }
+      toast.error(`Failed to ${variables.type}vote response`);
+    },
+    onSuccess: (_, variables) => {
+      toast.success(`${variables.type === 'up' ? 'Upvoted' : 'Downvoted'} response!`);
+    },
+  });
 
   if (isLoading) return null;
   if (message.role === 'user') return null;
@@ -53,46 +99,14 @@ export function PureMessageActions({
         <Action
           tooltip="Upvote Response"
           data-testid="message-upvote"
-          disabled={vote?.isUpvoted}
-              onClick={async () => {
-                const upvote = fetch('/api/vote', {
-                  method: 'PATCH',
-                  body: JSON.stringify({
-                    chatId,
-                    messageId: message.id,
-                    type: 'up',
-                  }),
-                });
-
-                toast.promise(upvote, {
-                  loading: 'Upvoting Response...',
-                  success: () => {
-                    mutate<Array<Vote>>(
-                      `/api/vote?chatId=${chatId}`,
-                      (currentVotes) => {
-                        if (!currentVotes) return [];
-
-                        const votesWithoutCurrent = currentVotes.filter(
-                          (vote) => vote.messageId !== message.id,
-                        );
-
-                        return [
-                          ...votesWithoutCurrent,
-                          {
-                            chatId,
-                            messageId: message.id,
-                            isUpvoted: true,
-                          },
-                        ];
-                      },
-                      { revalidate: false },
-                    );
-
-                    return 'Upvoted Response!';
-                  },
-                  error: 'Failed to upvote response.',
-                });
-              }}
+          disabled={vote?.isUpvoted || voteMutation.isPending}
+          onClick={() => {
+            voteMutation.mutate({
+              chatId,
+              messageId: message.id,
+              type: 'up',
+            });
+          }}
         >
           <ThumbUpIcon />
         </Action>
@@ -100,46 +114,14 @@ export function PureMessageActions({
         <Action
           tooltip="Downvote Response"
           data-testid="message-downvote"
-          disabled={vote && !vote.isUpvoted}
-              onClick={async () => {
-                const downvote = fetch('/api/vote', {
-                  method: 'PATCH',
-                  body: JSON.stringify({
-                    chatId,
-                    messageId: message.id,
-                    type: 'down',
-                  }),
-                });
-
-                toast.promise(downvote, {
-                  loading: 'Downvoting Response...',
-                  success: () => {
-                    mutate<Array<Vote>>(
-                      `/api/vote?chatId=${chatId}`,
-                      (currentVotes) => {
-                        if (!currentVotes) return [];
-
-                        const votesWithoutCurrent = currentVotes.filter(
-                          (vote) => vote.messageId !== message.id,
-                        );
-
-                        return [
-                          ...votesWithoutCurrent,
-                          {
-                            chatId,
-                            messageId: message.id,
-                            isUpvoted: false,
-                          },
-                        ];
-                      },
-                      { revalidate: false },
-                    );
-
-                    return 'Downvoted Response!';
-                  },
-                  error: 'Failed to downvote response.',
-                });
-              }}
+          disabled={(vote && !vote.isUpvoted) || voteMutation.isPending}
+          onClick={() => {
+            voteMutation.mutate({
+              chatId,
+              messageId: message.id,
+              type: 'down',
+            });
+          }}
         >
           <ThumbDownIcon />
         </Action>

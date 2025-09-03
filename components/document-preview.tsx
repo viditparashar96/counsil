@@ -10,10 +10,10 @@ import {
 } from 'react';
 import type { ArtifactKind, UIArtifact } from './artifact';
 import { FileIcon, FullscreenIcon, ImageIcon, LoaderIcon } from './icons';
-import { cn, fetcher } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import type { Document } from '@/lib/db/schema';
 import { InlineDocumentSkeleton } from './document-skeleton';
-import useSWR from 'swr';
+import { api } from '@/lib/trpc';
 import { Editor } from './text-editor';
 import { DocumentToolCall, DocumentToolResult } from './document';
 import { CodeEditor } from './code-editor';
@@ -35,9 +35,15 @@ export function DocumentPreview({
 }: DocumentPreviewProps) {
   const { artifact, setArtifact } = useArtifact();
 
-  const { data: documents, isLoading: isDocumentsFetching } = useSWR<
-    Array<Document>
-  >(result ? `/api/document?id=${result.id}` : null, fetcher);
+  // Use tRPC query for document data with proper caching and type safety
+  const { data: documents, isLoading: isDocumentsFetching } = api.document.getById.useQuery(
+    { id: result.id },
+    {
+      enabled: !!result?.id,
+      staleTime: 30 * 1000, // 30 seconds
+      refetchOnWindowFocus: false,
+    }
+  );
 
   const previewDocument = useMemo(() => documents?.[0], [documents]);
   const hitboxRef = useRef<HTMLDivElement>(null);

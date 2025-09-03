@@ -24,7 +24,8 @@ export type PromptInputProps = HTMLAttributes<HTMLFormElement>;
 export const PromptInput = ({ className, ...props }: PromptInputProps) => (
   <form
     className={cn(
-      'w-full overflow-hidden rounded-xl border bg-background shadow-sm',
+      // Relative wrapper so the gradient pseudo-element positions correctly
+  'relative ai-gradient-top ai-top-shadow w-full overflow-hidden rounded-xl border bg-background shadow-sm',
       className,
     )}
     {...props}

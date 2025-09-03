@@ -13,14 +13,7 @@ import {
 } from '@/lib/db/queries';
 import { convertToUIMessages, generateUUID } from '@/lib/utils';
 import { generateTitleFromUserMessage } from '../../actions';
-import { 
-  getWeatherTool,
-  createDocumentTool,
-  updateDocumentTool,
-  requestSuggestionsTool,
-  careerCounselingTool,
-  createImageAnalysisTool,
-} from '@/lib/ai/tools/openai-agents-tools';
+import { CareerCounselingSystem } from '@/lib/agents/career-counseling-system';
 import { isProductionEnvironment } from '@/lib/constants';
 import { entitlementsByUserType } from '@/lib/ai/entitlements';
 import { postRequestBodySchema, type PostRequestBody } from './schema';
@@ -151,33 +144,31 @@ export async function POST(request: Request) {
     const streamId = generateUUID();
     await createStreamId({ streamId, chatId: id });
 
-    // Create OpenAI Agent with tools
-    const tools = selectedChatModel === 'chat-model-reasoning' ? [] : [
-      getWeatherTool,
-      createDocumentTool({ session }),
-      updateDocumentTool({ session }),
-      requestSuggestionsTool({ session }),
-      careerCounselingTool({ session, chatId: id }),
-      createImageAnalysisTool(),
-    ];
-
-    // Map model IDs to actual OpenAI models
-    const modelMapping = {
-      'chat-model': 'gpt-4o',
-      'chat-model-reasoning': 'gpt-4o',
-      'title-model': 'gpt-4o-mini',
-      'artifact-model': 'gpt-4o',
-    };
-
-    const actualModel = modelMapping[selectedChatModel as keyof typeof modelMapping] || 'gpt-4o';
-
-    const agent = new Agent({
-      name: 'AI Assistant',
-      instructions: systemPrompt({ selectedChatModel, requestHints }),
-      model: actualModel,
-      client: openaiClient,
-      tools,
+    // Initialize Career Counseling System with multi-agent architecture
+    console.log('Initializing CareerCounselingSystem with multi-agent architecture...');
+    
+    const careerCounselingSystem = new CareerCounselingSystem({
+      session,
+      chatId: id,
+      requestHints: {
+        longitude: typeof longitude === 'string' ? parseFloat(longitude) || undefined : longitude,
+        latitude: typeof latitude === 'string' ? parseFloat(latitude) || undefined : latitude,
+        city,
+        country,
+      },
     });
+
+    // Get the appropriate starting agent (triage agent - Career Counselor)
+    const lastMessageContent = Array.isArray(uiMessages[uiMessages.length - 1].parts) 
+      ? uiMessages[uiMessages.length - 1].parts.map(part => part.type === 'text' ? part.text : '[file]').join(' ')
+      : 'Hello';
+      
+    const { agent: startingAgent } = await careerCounselingSystem.handleConversation(
+      lastMessageContent,
+      uiMessages.slice(0, -1) // Pass conversation history excluding the current message
+    );
+
+    const agent = startingAgent;
 
     // Convert UI messages to proper format for multimodal input
     const lastMessage = uiMessages[uiMessages.length - 1];
@@ -263,11 +254,30 @@ export async function POST(request: Request) {
           }
         };
         
+        // Safe enqueue for final markers that checks controller state
+        const safeFinalEnqueue = (data: any) => {
+          if (!isControllerClosed) {
+            try {
+              controller.enqueue(encoder.encode(data));
+            } catch (error) {
+              console.log('Controller already closed, skipping final enqueue');
+              isControllerClosed = true;
+            }
+          }
+        };
+        
         try {
           console.log('Starting OpenAI Agent SDK stream processing...');
+          console.log('Starting agent:', agent.name);
           
           // Process events from the agent stream
           for await (const event of result) {
+            // Exit early if controller is closed
+            if (isControllerClosed) {
+              console.log('Controller closed during streaming, exiting event loop');
+              break;
+            }
+            
             console.log('Processing event:', event.type);
             
             // Handle different event types from OpenAI Agent SDK
@@ -330,63 +340,116 @@ export async function POST(request: Request) {
             }
 
             if (event.type === 'agent_updated_stream_event') {
-              console.log('Agent updated:', event.agent.name);
-              // Agent handoff or update events
-              safeEnqueue({
-                type: 'data',
-                data: {
-                  type: 'agent-response',
-                  content: {
-                    agentUsed: event.agent.name,
-                    response: 'Agent updated',
-                  }
-                }
-              });
+              console.log('Agent handoff to:', event.agent.name);
+              // DO NOT interfere with stream - this breaks streaming after handoffs
+              // We need another approach to communicate agent changes to UI
             }
           }
 
-          console.log('Stream processing completed, waiting for final result...');
+          console.log('Stream event loop completed');
           
-          // Send text block end event if we started streaming
-          if (hasStarted) {
-            safeEnqueue({
-              type: 'text-end',
-              id: textBlockId
-            });
+          // Only proceed with completion if controller is still open
+          if (!isControllerClosed) {
+            console.log('Waiting for final result...');
+            
+            // Wait for completion and get final output
+            try {
+              await result.completed;
+              console.log('Stream completed successfully');
+            } catch (completionError) {
+              console.log('Completion error (using accumulated content):', completionError);
+            }
+            
+            // Use accumulated content as the primary source, fallback to finalOutput
+            const finalOutput = accumulatedContent || result.finalOutput || '';
+            console.log('Final output length:', finalOutput.length);
+            
+            // Send text block end event if we started streaming
+            if (hasStarted && !isControllerClosed) {
+              safeEnqueue({
+                type: 'text-end',
+                id: textBlockId
+              });
+            }
+            
+            // Send finish event
+            if (!isControllerClosed) {
+              safeEnqueue({
+                type: 'finish'
+              });
+            }
+            
+            // Send final DONE marker with safe enqueue
+            if (!isControllerClosed) {
+              safeFinalEnqueue(`data: [DONE]\n\n`);
+            }
+            
+            // Save assistant response with the SAME id used for streaming
+            // so UI interactions (e.g., voting) reference existing DB rows
+            if (finalOutput) {
+              await saveMessages({
+                messages: [{
+                  id: messageId,
+                  role: 'assistant',
+                  parts: [{ type: 'text', text: finalOutput }],
+                  createdAt: new Date(),
+                  attachments: [],
+                  chatId: id,
+                }],
+              });
+              
+              console.log('Messages saved to database');
+            }
+
+            console.log('Stream processing completed successfully');
+          } else {
+            console.log('Controller closed during processing, skipping completion steps');
+            
+            // Still save the message even if controller is closed
+            const finalOutput = accumulatedContent || '';
+            if (finalOutput) {
+              await saveMessages({
+                messages: [{
+                  id: messageId,
+                  role: 'assistant',
+                  parts: [{ type: 'text', text: finalOutput }],
+                  createdAt: new Date(),
+                  attachments: [],
+                  chatId: id,
+                }],
+              });
+              
+              console.log('Messages saved to database (controller closed)');
+            }
           }
           
-          // Wait for completion and get final output
-          await result.completed;
-          
-          const finalOutput = result.finalOutput || accumulatedContent;
-          console.log('Final output length:', finalOutput.length);
-          
-          // Send finish event
-          safeEnqueue({
-            type: 'finish'
-          });
-          
-          // Send final DONE marker
-          controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
-          
-          // Save assistant response with the SAME id used for streaming
-          // so UI interactions (e.g., voting) reference existing DB rows
-          await saveMessages({
-            messages: [{
-              id: messageId,
-              role: 'assistant',
-              parts: [{ type: 'text', text: finalOutput }],
-              createdAt: new Date(),
-              attachments: [],
-              chatId: id,
-            }],
-          });
-
-          console.log('Messages saved, closing stream...');
+          // Safe close
           safeClose();
           
         } catch (error) {
           console.error('OpenAI Agent SDK streaming error:', error);
+          
+          // Try to save whatever content we have accumulated
+          const finalOutput = accumulatedContent || '';
+          if (finalOutput) {
+            try {
+              await saveMessages({
+                messages: [{
+                  id: messageId,
+                  role: 'assistant',
+                  parts: [{ type: 'text', text: finalOutput }],
+                  createdAt: new Date(),
+                  attachments: [],
+                  chatId: id,
+                }],
+              });
+              
+              console.log('Messages saved to database (error recovery)');
+            } catch (saveError) {
+              console.error('Failed to save messages during error recovery:', saveError);
+            }
+          }
+          
           if (!isControllerClosed) {
             try {
               controller.error(error);

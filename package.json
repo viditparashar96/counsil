@@ -30,6 +30,7 @@
     "@codemirror/state": "^6.5.0",
     "@codemirror/theme-one-dark": "^6.1.2",
     "@codemirror/view": "^6.35.3",
+    "@heroicons/react": "^2.2.0",
     "@icons-pack/react-simple-icons": "^13.7.0",
     "@openai/agents": "^0.1.0",
     "@openai/agents-extensions": "^0.1.0",

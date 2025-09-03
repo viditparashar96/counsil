@@ -7,6 +7,8 @@ export interface AgentHandoffState {
   suggestedAgent: string | null;
   handoffMessage: string | null;
   currentAgent: string | null;
+  isTransitioning: boolean;
+  transitionMessage: string | null;
 }
 
 export function useAgentHandoffs(chatId: string) {
@@ -14,7 +16,9 @@ export function useAgentHandoffs(chatId: string) {
     isHandoffAvailable: false,
     suggestedAgent: null,
     handoffMessage: null,
-    currentAgent: null,
+    currentAgent: 'Career Counselor', // Default to triage agent
+    isTransitioning: false,
+    transitionMessage: null,
   });
 
   const utils = api.useUtils();
@@ -29,10 +33,12 @@ export function useAgentHandoffs(chatId: string) {
       // Update current agent state
       setHandoffState(prev => ({
         ...prev,
-        currentAgent: result.agent.id,
+        currentAgent: result.agent.name,
         isHandoffAvailable: false,
         suggestedAgent: null,
         handoffMessage: null,
+        isTransitioning: false,
+        transitionMessage: null,
       }));
     },
     onError: (error) => {
@@ -44,6 +50,14 @@ export function useAgentHandoffs(chatId: string) {
   });
 
   const handleHandoff = useCallback((targetAgent: string, context?: string) => {
+    // Show transition state
+    setHandoffState(prev => ({
+      ...prev,
+      isTransitioning: true,
+      transitionMessage: `Connecting you to ${targetAgent}...`,
+      isHandoffAvailable: false,
+    }));
+
     handoffMutation.mutate({
       targetAgent,
       chatId,
@@ -80,6 +94,26 @@ export function useAgentHandoffs(chatId: string) {
         }));
       }
     }
+    
+    // Handle direct agent handoff updates from streaming
+    if (data?.type === 'agent-handoff' && data.agentName) {
+      setHandoffState(prev => ({
+        ...prev,
+        currentAgent: data.agentName,
+        isTransitioning: false,
+        transitionMessage: null,
+      }));
+    }
+  }, []);
+
+  // Method to update current agent from streaming events
+  const updateCurrentAgent = useCallback((agentName: string) => {
+    setHandoffState(prev => ({
+      ...prev,
+      currentAgent: agentName,
+      isTransitioning: false,
+      transitionMessage: null,
+    }));
   }, []);
 
   const resetAgent = useCallback(() => {
@@ -87,7 +121,9 @@ export function useAgentHandoffs(chatId: string) {
       isHandoffAvailable: false,
       suggestedAgent: null,
       handoffMessage: null,
-      currentAgent: null,
+      currentAgent: 'Career Counselor',
+      isTransitioning: false,
+      transitionMessage: null,
     });
   }, []);
 
@@ -96,6 +132,7 @@ export function useAgentHandoffs(chatId: string) {
     handleHandoff,
     dismissHandoff,
     processAgentResponse,
+    updateCurrentAgent,
     resetAgent,
     isHandoffLoading: handoffMutation.isPending,
   };

@@ -22,6 +22,7 @@ import { useDataStream } from './data-stream-provider';
 import { api } from '@/lib/trpc';
 import { useAgentHandoffs } from '@/hooks/use-agent-handoffs';
 import { AgentHandoffBanner } from './agent-handoff-banner';
+import { AgentIndicator } from './agent-indicator';
 // Removed: explicit top loader chip; we use gradient bar as the loader now
 
 export function Chat({
@@ -54,6 +55,7 @@ export function Chat({
     handleHandoff,
     dismissHandoff,
     processAgentResponse,
+    updateCurrentAgent,
     isHandoffLoading,
   } = useAgentHandoffs(id);
 
@@ -93,6 +95,11 @@ export function Chat({
       // Process agent responses for handoff suggestions
       if (dataPart.type === 'data') {
         processAgentResponse(dataPart.data);
+        
+        // Handle agent handoffs for UI updates
+        if (dataPart.data?.type === 'agent-handoff' && dataPart.data.agentName) {
+          updateCurrentAgent(dataPart.data.agentName);
+        }
       }
     },
     onFinish: () => {
@@ -154,6 +161,13 @@ export function Chat({
           selectedVisibilityType={initialVisibilityType}
           isReadonly={isReadonly}
           session={session}
+        />
+
+        {/* Agent Indicator - shows current agent */}
+        <AgentIndicator
+          currentAgent={handoffState.currentAgent}
+          isTransitioning={handoffState.isTransitioning}
+          transitionMessage={handoffState.transitionMessage}
         />
 
         {/* Content area gets a Gemini-style gradient bar at the very top */}

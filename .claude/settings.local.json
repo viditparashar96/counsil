@@ -12,7 +12,10 @@
       "mcp__context7__get-library-docs",
       "Bash(pnpm add:*)",
       "Bash(npm install:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "WebFetch(domain:cookbook.openai.com)",
+      "Bash(node:*)",
+      "WebFetch(domain:github.com)"
     ],
     "deny": [],
     "ask": []

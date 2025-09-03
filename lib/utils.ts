@@ -31,14 +31,36 @@ export async function fetchWithErrorHandlers(
   init?: RequestInit,
 ) {
   try {
-    const response = await fetch(input, init);
+    // Add a longer timeout for streaming requests
+    const isStreamingRequest = init?.headers && 
+      (init.headers as Record<string, string>)['Accept']?.includes('text/event-stream');
+      
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), isStreamingRequest ? 120000 : 30000); // 2 minutes for streaming, 30 seconds for regular
+    
+    try {
+      const response = await fetch(input, {
+        ...init,
+        signal: controller.signal,
+      });
 
-    if (!response.ok) {
-      const { code, cause } = await response.json();
-      throw new ChatSDKError(code as ErrorCode, cause);
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const { code, cause } = await response.json();
+        throw new ChatSDKError(code as ErrorCode, cause);
+      }
+
+      return response;
+    } catch (fetchError: any) {
+      clearTimeout(timeoutId);
+      
+      if (fetchError.name === 'AbortError') {
+        throw new ChatSDKError('timeout:chat');
+      }
+      
+      throw fetchError;
     }
-
-    return response;
   } catch (error: unknown) {
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       throw new ChatSDKError('offline:chat');

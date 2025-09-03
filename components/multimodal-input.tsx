@@ -33,13 +33,14 @@ import { SelectItem, SelectValue } from '@/components/ui/select';
 import equal from 'fast-deep-equal';
 import type { UseChatHelpers } from '@ai-sdk/react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowDown } from 'lucide-react';
+import { ArrowDown, Mic, Square } from 'lucide-react';
 import { useScrollToBottom } from '@/hooks/use-scroll-to-bottom';
 import type { VisibilityType } from './visibility-selector';
 import type { Attachment, ChatMessage } from '@/lib/types';
 import { chatModels } from '@/lib/ai/models';
 import { saveChatModelAsCookie } from '@/app/(chat)/actions';
 import { startTransition } from 'react';
+import { useSpeechToText } from '@/hooks/use-speech-to-text';
 
 // Helper function to convert file to base64
 const fileToBase64 = (file: File): Promise<string> => {
@@ -87,6 +88,7 @@ function PureMultimodalInput({
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { width } = useWindowSize();
+  const baseInputRef = useRef('');
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -256,6 +258,42 @@ function PureMultimodalInput({
 
   const { isAtBottom, scrollToBottom } = useScrollToBottom();
 
+  // Web Speech API integration
+  const { isSupported, isListening, toggle, stop: stopListening, errorCode } = useSpeechToText({
+    interimResults: true,
+    continuous: true,
+    lang: 'en-US',
+    retryOnNetworkError: true,
+    maxNetworkRetries: 1,
+    onStart: () => {
+      baseInputRef.current = input ? input.trimEnd() + (input.endsWith(' ') ? '' : ' ') : '';
+    },
+    onResult: (spoken, _isFinal) => {
+      const next = (baseInputRef.current + spoken).replace(/\s+/g, ' ').trimStart();
+      setInput(next);
+      // Resize textarea as text grows
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+        textareaRef.current.style.height = `${Math.min(200, Math.max(72, textareaRef.current.scrollHeight))}px`;
+      }
+    },
+    onError: (err) => {
+      console.error('Speech recognition error:', err);
+      const code = (err as any)?.error as string | undefined;
+      if (code === 'network') {
+        toast.error('Speech recognition network error. Check VPN/AdBlock/Firewall and HTTPS.');
+      } else if (code === 'audio-capture') {
+        toast.error('No microphone found or in use by another app.');
+      } else if (code === 'no-speech') {
+        toast.error('No speech detected. Try again closer to the mic.');
+      } else if (code === 'not-allowed' || code === 'service-not-allowed') {
+        toast.error('Microphone permission denied. Allow access and retry.');
+      } else {
+        toast.error('Speech recognition error. Try again.');
+      }
+    },
+  });
+
   useEffect(() => {
     if (status === 'submitted') {
       scrollToBottom();
@@ -315,6 +353,10 @@ function PureMultimodalInput({
           if (status !== 'ready') {
             toast.error('Please wait for the model to finish its response!');
           } else {
+            // If listening, stop before submitting
+            if (isListening) {
+              stopListening();
+            }
             submitForm();
           }
         }}
@@ -356,7 +398,7 @@ function PureMultimodalInput({
         <PromptInputTextarea
           data-testid="multimodal-input"
           ref={textareaRef}
-          placeholder="Send a message..."
+          placeholder={isListening ? 'Listening… speak now' : 'Send a message...'}
           value={input}
           onChange={handleInput}
           minHeight={72}
@@ -367,12 +409,66 @@ function PureMultimodalInput({
           autoFocus
         />
         <PromptInputToolbar className="px-4 py-2 !border-t-0 !border-top-0 shadow-none dark:!border-transparent dark:border-0">
-          <PromptInputTools className="gap-2">
+          <PromptInputTools className="gap-2 items-center">
             <AttachmentsButton fileInputRef={fileInputRef} status={status} />
             <ModelSelectorCompact selectedModelId={selectedModelId} />
+
+            {/* Microphone button - browser-only speech recognition */}
+            <Button
+              type="button"
+              data-testid="mic-button"
+              onClick={(e) => {
+                e.preventDefault();
+                if (!isSupported) {
+                  toast.error('Speech recognition not supported in this browser');
+                  return;
+                }
+                toggle();
+              }}
+              variant="ghost"
+              disabled={status !== 'ready'}
+              className={`${isListening ? 'bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-300' : ''} rounded-md p-[7px] h-fit`}
+              aria-pressed={isListening}
+              aria-label={isListening ? 'Stop listening' : 'Start voice input'}
+              title={isListening ? 'Stop listening' : 'Start voice input'}
+            >
+              {isListening ? <Square size={14} /> : <Mic size={14} />}
+            </Button>
+
+            {isListening && (
+              <div className="flex items-center gap-2 text-xs text-red-600 dark:text-red-400 select-none" aria-live="polite">
+                <span className="inline-flex items-center">
+                  <span className="mr-2 inline-block size-2 rounded-full bg-red-500 animate-pulse" />
+                  Listening…
+                </span>
+                <div className="ml-1 flex items-end gap-[3px] h-4">
+                  <span className="w-1 bg-red-500 rounded-sm animate-bounce" style={{ height: '8px', animationDelay: '0ms' }} />
+                  <span className="w-1 bg-red-500 rounded-sm animate-bounce" style={{ height: '12px', animationDelay: '100ms' }} />
+                  <span className="w-1 bg-red-500 rounded-sm animate-bounce" style={{ height: '16px', animationDelay: '200ms' }} />
+                  <span className="w-1 bg-red-500 rounded-sm animate-bounce" style={{ height: '12px', animationDelay: '300ms' }} />
+                  <span className="w-1 bg-red-500 rounded-sm animate-bounce" style={{ height: '8px', animationDelay: '400ms' }} />
+                </div>
+                {errorCode === 'network' && (
+                  <span className="ml-2 text-[10px] opacity-80">Network issue — check VPN/AdBlock</span>
+                )}
+              </div>
+            )}
           </PromptInputTools>
+
           {status === 'submitted' ? (
             <StopButton stop={stop} setMessages={setMessages} />
+          ) : isListening ? (
+            // While listening, replace send with a stop-listening control
+            <Button
+              data-testid="stop-listening-button"
+              onClick={(e) => {
+                e.preventDefault();
+                stopListening();
+              }}
+              className="p-3 text-red-700 bg-red-100 rounded-full hover:bg-red-200 dark:bg-red-900/30 dark:hover:bg-red-900/40 dark:text-red-300"
+            >
+              <Square size={20} />
+            </Button>
           ) : (
             <PromptInputSubmit
               status={status}

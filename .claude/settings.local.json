@@ -29,7 +29,9 @@
       "Read(/E:\\personalProjects\\counsil\\components/**)",
       "Read(/E:\\personalProjects\\counsil\\components/**)",
       "Read(/E:\\personalProjects\\counsil\\app\\(chat)\\api\\chat/**)",
-      "Read(/E:\\personalProjects\\counsil\\app\\(chat)\\api\\chat/**)"
+      "Read(/E:\\personalProjects\\counsil\\app\\(chat)\\api\\chat/**)",
+      "Read(/E:\\personalProjects\\counsil\\lib\\agents/**)",
+      "Read(/E:\\personalProjects\\counsil/**)"
     ],
     "deny": [],
     "ask": []

@@ -55,7 +55,7 @@ export function Chat({
     handleHandoff,
     dismissHandoff,
     processAgentResponse,
-    updateCurrentAgent,
+    detectAgentFromMessage,
     isHandoffLoading,
   } = useAgentHandoffs(id);
 
@@ -95,11 +95,11 @@ export function Chat({
       // Process agent responses for handoff suggestions
       if (dataPart.type === 'data') {
         processAgentResponse(dataPart.data);
-        
-        // Handle agent handoffs for UI updates
-        if (dataPart.data?.type === 'agent-handoff' && dataPart.data.agentName) {
-          updateCurrentAgent(dataPart.data.agentName);
-        }
+      }
+      
+      // Detect agent changes from message content (non-intrusive approach)
+      if (dataPart.type === 'text-delta' && dataPart.delta) {
+        detectAgentFromMessage(dataPart.delta);
       }
     },
     onFinish: () => {
@@ -164,12 +164,7 @@ export function Chat({
         />
 
         {/* Agent Indicator - shows current agent */}
-        <AgentIndicator
-          currentAgent={handoffState.currentAgent}
-          isTransitioning={handoffState.isTransitioning}
-          transitionMessage={handoffState.transitionMessage}
-        />
-
+    
         {/* Content area gets a Gemini-style gradient bar at the very top */}
         <div
           className={cn(

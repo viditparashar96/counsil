@@ -1,4 +1,4 @@
-import { Agent, handoff, tool } from '@openai/agents';
+import { Agent, handoff, tool, type RunContext } from '@openai/agents';
 import OpenAI from 'openai';
 import type { Session } from 'next-auth';
 import { z } from 'zod';
@@ -14,7 +14,7 @@ import {
   createDocumentTool,
   updateDocumentTool,
   requestSuggestionsTool,
-  createImageAnalysisTool,
+  createFileAnalysisTool,
 } from '../ai/tools/openai-agents-tools';
 
 export interface CareerCounselingContext {
@@ -26,6 +26,19 @@ export interface CareerCounselingContext {
     city?: string;
     country?: string;
   };
+  conversationHistory?: any[]; // Array of user() and assistant() messages
+}
+
+export interface ConversationMemory {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp: Date;
+  agentName?: string;
+  metadata?: {
+    toolCalls?: any[];
+    handoffs?: string[];
+    topics?: string[];
+  };
 }
 
 export class CareerCounselingSystem {
@@ -35,30 +48,179 @@ export class CareerCounselingSystem {
   private jobSearchAdvisor: Agent;
   private careerCounselor: Agent;
   private context: CareerCounselingContext;
+  private conversationMemory: ConversationMemory[] = [];
+  private maxMemoryItems: number = 50; // Limit memory to prevent token overflow
 
   constructor(context: CareerCounselingContext) {
     this.context = context;
     this.setupAgents();
+    // Remove complex memory loading - we're using simple conversation history now
+  }
+
+  // Memory management methods
+  private async loadConversationMemory() {
+    console.log(`Loading conversation memory for chat ${this.context.chatId}`);
+    
+    try {
+      // Import the database queries dynamically to avoid circular imports
+      const { getConversationMemoryByChatId } = await import('../db/queries');
+      
+      const savedMemory = await getConversationMemoryByChatId({
+        chatId: this.context.chatId,
+        limit: this.maxMemoryItems,
+      });
+
+      // Convert database records to our memory format
+      this.conversationMemory = savedMemory.map(record => ({
+        role: record.role as 'user' | 'assistant' | 'system',
+        content: record.content,
+        timestamp: record.timestamp,
+        agentName: record.agentName || undefined,
+        metadata: record.metadata || undefined,
+      }));
+
+      console.log(`Loaded ${this.conversationMemory.length} memory items from database`);
+    } catch (error) {
+      console.error('Failed to load conversation memory from database:', error);
+      // Continue with empty memory
+      this.conversationMemory = [];
+    }
+  }
+
+  public addToMemory(message: ConversationMemory) {
+    this.conversationMemory.push(message);
+    
+    // Keep memory within limits
+    if (this.conversationMemory.length > this.maxMemoryItems) {
+      // Remove oldest messages but keep system messages
+      const systemMessages = this.conversationMemory.filter(m => m.role === 'system');
+      const recentMessages = this.conversationMemory
+        .filter(m => m.role !== 'system')
+        .slice(-this.maxMemoryItems + systemMessages.length);
+      
+      this.conversationMemory = [...systemMessages, ...recentMessages];
+    }
+
+    // Persist to database
+    this.saveConversationMemoryToDB(message);
+  }
+
+  private async saveConversationMemoryToDB(message: ConversationMemory) {
+    try {
+      const { saveConversationMemory } = await import('../db/queries');
+      
+      await saveConversationMemory({
+        chatId: this.context.chatId,
+        role: message.role,
+        content: message.content,
+        agentName: message.agentName,
+        metadata: message.metadata,
+        timestamp: message.timestamp,
+      });
+
+      console.log('Conversation memory saved to database');
+    } catch (error) {
+      console.error('Failed to save conversation memory to database:', error);
+      // Don't throw error to prevent breaking the main flow
+    }
+  }
+
+  public getMemoryContext(): string {
+    if (this.conversationMemory.length === 0) {
+      return 'This is the start of a new conversation.';
+    }
+
+    const recentMemory = this.conversationMemory.slice(-10); // Last 10 interactions
+    let context = 'Recent conversation history:\n';
+    
+    recentMemory.forEach((memory, index) => {
+      const timestamp = memory.timestamp.toLocaleString();
+      const agentInfo = memory.agentName ? ` (${memory.agentName})` : '';
+      context += `${index + 1}. [${timestamp}] ${memory.role}${agentInfo}: ${memory.content}\n`;
+      
+      if (memory.metadata?.handoffs?.length) {
+        context += `   -> Handoffs: ${memory.metadata.handoffs.join(', ')}\n`;
+      }
+      
+      if (memory.metadata?.topics?.length) {
+        context += `   -> Topics: ${memory.metadata.topics.join(', ')}\n`;
+      }
+    });
+
+    return context;
+  }
+
+  public getTopicsDiscussed(): string[] {
+    const topics = new Set<string>();
+    this.conversationMemory.forEach(memory => {
+      if (memory.metadata?.topics) {
+        memory.metadata.topics.forEach(topic => topics.add(topic));
+      }
+    });
+    return Array.from(topics);
+  }
+
+  public getAgentHistory(): string[] {
+    const agents = new Set<string>();
+    this.conversationMemory.forEach(memory => {
+      if (memory.agentName) {
+        agents.add(memory.agentName);
+      }
+    });
+    return Array.from(agents);
   }
 
   private setupAgents() {
+    // Context-aware tool for accessing conversation memory
+    const conversationMemoryTool = tool({
+      name: 'access_conversation_memory',
+      description: 'Access conversation history and context to provide better continuity and personalized responses',
+      parameters: z.object({
+        query: z.string().describe('What type of information to retrieve from memory (e.g., "previous discussions about resume", "topics covered")'),
+      }),
+      execute: async ({ query }, runContext?: RunContext<CareerCounselingContext>) => {
+        if (!runContext?.context?.conversationHistory) {
+          return {
+            summary: 'No conversation history available',
+            totalInteractions: 0,
+            query
+          };
+        }
+
+        const history = runContext.context.conversationHistory;
+        const historyText = history.map((msg: any) => `${msg.role}: ${msg.content}`).join('\n');
+        
+        return {
+          conversationHistory: historyText,
+          totalInteractions: history.length,
+          chatId: runContext.context.chatId,
+          query,
+          summary: `Based on the query "${query}", here's the relevant conversation history with ${history.length} previous interactions.`
+        };
+      }
+    });
+
     // Shared tools for all agents
     const sharedTools = [
+      conversationMemoryTool,
       getWeatherTool,
       createDocumentTool({ session: this.context.session }),
       updateDocumentTool({ session: this.context.session }),
       requestSuggestionsTool({ session: this.context.session }),
-      createImageAnalysisTool(),
+      createFileAnalysisTool(),
     ];
 
     // Resume Expert Agent
-    this.resumeExpert = new Agent({
+    this.resumeExpert = new Agent<CareerCounselingContext>({
       name: 'Resume Expert',
       client: openaiClient,
       model: 'gpt-4o',
-      instructions: `You are a professional Resume Expert with extensive experience in resume writing, optimization, and ATS (Applicant Tracking System) compliance.
-
-Your expertise includes:
+      instructions: (runContext: RunContext<CareerCounselingContext>) =>
+        `You are a professional Resume Expert with extensive experience in resume writing, optimization, and ATS (Applicant Tracking System) compliance.
+        
+        ${runContext.context?.conversationHistory ? `You have access to previous conversation history with ${runContext.context.conversationHistory.length} previous interactions. Use this context to provide personalized advice.` : 'This is the start of a new conversation.'}
+        
+        Your expertise includes:
 - Resume writing and formatting best practices
 - ATS optimization to ensure resumes pass automated screening
 - Industry-specific resume tailoring
@@ -354,14 +516,29 @@ Include:
     });
 
     // Career Counselor (Triage Agent)
-    this.careerCounselor = new Agent({
+    this.careerCounselor = new Agent<CareerCounselingContext>({
       name: 'Career Counselor',
       client: openaiClient,
       model: 'gpt-4o-mini', // Using smaller model for triage as it's more cost-effective
-      instructions: `You are a Career Counselor who serves as the first point of contact for career-related questions. Your role is to understand what users need and connect them with the right specialist.
-
-Based on user questions, route them to the appropriate specialist:
-
+      instructions: (runContext: RunContext<CareerCounselingContext>) => {
+        const hasHistory = runContext.context?.conversationHistory && runContext.context.conversationHistory.length > 0;
+        
+        let instruction = `You are a Career Counselor who serves as the first point of contact for career-related questions. Your role is to understand what users need and connect them with the right specialist.\n\n`;
+        
+        if (hasHistory) {
+          instruction += `CONVERSATION HISTORY:\n`;
+          runContext.context!.conversationHistory!.forEach((msg: any, i: number) => {
+            const role = msg.role === 'user' ? 'USER' : 'ASSISTANT';
+            const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+            instruction += `${i + 1}. ${role}: ${content}\n`;
+          });
+          instruction += `\nUse this conversation history to provide more personalized guidance and routing decisions.\n\n`;
+        } else {
+          instruction += `This is the start of a new conversation.\n\n`;
+        }
+        
+        instruction += `
+        
 🎯 **Resume Expert** - For:
 - Resume writing, editing, or optimization
 - ATS compatibility questions
@@ -392,7 +569,10 @@ When routing users:
 3. Use handoffs to transfer them to the appropriate agent
 4. Provide a warm introduction
 
-If users have general questions that don't require specialist expertise, you can provide initial guidance before offering specialist connections.`,
+If users have general questions that don't require specialist expertise, you can provide initial guidance before offering specialist connections.`;
+        
+        return instruction;
+      },
       tools: [...sharedTools],
       handoffs: [
         handoff(this.resumeExpert, {
@@ -419,9 +599,11 @@ If users have general questions that don't require specialist expertise, you can
   async handleConversation(message: string, conversationHistory: any[] = []) {
     try {
       console.log('CareerCounselingSystem: Processing message with triage agent');
+      console.log('Using built-in conversation history for memory');
       
       // Start with the triage agent (Career Counselor)
       // The agent will automatically route to specialists via handoffs when appropriate
+      // Memory is now handled through the conversation history passed to run()
       return {
         agent: this.careerCounselor,
         message,
@@ -431,6 +613,48 @@ If users have general questions that don't require specialist expertise, you can
       console.error('CareerCounselingSystem error:', error);
       throw error;
     }
+  }
+
+  // Helper method to extract topics from user messages
+  private extractTopicsFromMessage(message: string): string[] {
+    const topics: string[] = [];
+    const lowercaseMessage = message.toLowerCase();
+    
+    // Career-related topic detection
+    const topicPatterns = {
+      'resume': ['resume', 'cv', 'curriculum vitae'],
+      'interview': ['interview', 'interview prep', 'mock interview'],
+      'job search': ['job search', 'job hunting', 'job application', 'applying for jobs'],
+      'career planning': ['career plan', 'career path', 'career development', 'career transition'],
+      'salary negotiation': ['salary', 'compensation', 'negotiate', 'pay'],
+      'networking': ['networking', 'professional network', 'connections'],
+      'skills': ['skills', 'competencies', 'abilities', 'expertise'],
+      'linkedin': ['linkedin', 'professional profile'],
+      'cover letter': ['cover letter', 'application letter'],
+      'portfolio': ['portfolio', 'work samples', 'projects']
+    };
+
+    for (const [topic, patterns] of Object.entries(topicPatterns)) {
+      if (patterns.some(pattern => lowercaseMessage.includes(pattern))) {
+        topics.push(topic);
+      }
+    }
+
+    return topics;
+  }
+
+  // Method to record agent responses and handoffs
+  public recordAgentResponse(agentName: string, response: string, handoffs?: string[]) {
+    this.addToMemory({
+      role: 'assistant',
+      content: response,
+      timestamp: new Date(),
+      agentName,
+      metadata: {
+        handoffs,
+        topics: this.extractTopicsFromMessage(response)
+      }
+    });
   }
 
   // Get all agents for external access if needed

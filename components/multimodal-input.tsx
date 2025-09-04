@@ -182,14 +182,25 @@ function PureMultimodalInput({
   ]);
 
   const uploadFile = async (file: File) => {
-    // Validate file type
-    if (!['image/jpeg', 'image/png'].includes(file.type)) {
-      throw new Error('Only JPEG and PNG images are supported');
+    // Validate file type - support images, PDFs, and Word documents
+    const allowedTypes = [
+      'image/jpeg', 
+      'image/png', 
+      'image/gif', 
+      'image/bmp', 
+      'image/webp',
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // DOCX
+      'application/msword' // DOC (legacy)
+    ];
+    
+    if (!allowedTypes.includes(file.type)) {
+      throw new Error('Only images (JPEG, PNG, GIF, BMP, WebP), PDF, and Word documents are supported');
     }
 
-    // Validate file size (5MB limit)
-    if (file.size > 5 * 1024 * 1024) {
-      throw new Error('File size must be less than 5MB');
+    // Validate file size (10MB limit for documents)
+    if (file.size > 10 * 1024 * 1024) {
+      throw new Error('File size must be less than 10MB');
     }
 
     try {
@@ -199,7 +210,7 @@ function PureMultimodalInput({
       // Upload using tRPC mutation
       const result = await uploadFileMutation.mutateAsync({
         filename: file.name,
-        contentType: file.type as 'image/jpeg' | 'image/png',
+        contentType: file.type as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/bmp' | 'image/webp' | 'application/pdf' | 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' | 'application/msword',
         size: file.size,
         data: base64Data,
       });
@@ -340,6 +351,7 @@ function PureMultimodalInput({
       <input
         type="file"
         className="fixed -top-4 -left-4 size-0.5 opacity-0 pointer-events-none"
+        accept="image/*,application/pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         ref={fileInputRef}
         multiple
         onChange={handleFileChange}

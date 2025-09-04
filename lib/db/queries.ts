@@ -27,6 +27,8 @@ import {
   type DBMessage,
   type Chat,
   stream,
+  conversationMemory,
+  type ConversationMemory,
 } from './schema';
 import type { ArtifactKind } from '@/components/artifact';
 import { generateUUID } from '../utils';
@@ -534,5 +536,130 @@ export async function getStreamIdsByChatId({ chatId }: { chatId: string }) {
       'bad_request:database',
       'Failed to get stream ids by chat id',
     );
+  }
+}
+
+// Conversation Memory Queries
+export async function saveConversationMemory({
+  chatId,
+  role,
+  content,
+  agentName,
+  metadata,
+  timestamp,
+}: {
+  chatId: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  agentName?: string;
+  metadata?: any;
+  timestamp: Date;
+}) {
+  try {
+    await db.insert(conversationMemory).values({
+      chatId,
+      role,
+      content,
+      agentName,
+      metadata,
+      timestamp,
+    });
+  } catch (error) {
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to save conversation memory',
+    );
+  }
+}
+
+export async function getConversationMemoryByChatId({
+  chatId,
+  limit = 50,
+}: {
+  chatId: string;
+  limit?: number;
+}): Promise<ConversationMemory[]> {
+  try {
+    const memories = await db
+      .select()
+      .from(conversationMemory)
+      .where(eq(conversationMemory.chatId, chatId))
+      .orderBy(desc(conversationMemory.timestamp))
+      .limit(limit)
+      .execute();
+
+    return memories.reverse(); // Return in chronological order
+  } catch (error) {
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to get conversation memory',
+    );
+  }
+}
+
+export async function getConversationMemoryByDateRange({
+  chatId,
+  startDate,
+  endDate,
+}: {
+  chatId: string;
+  startDate: Date;
+  endDate: Date;
+}): Promise<ConversationMemory[]> {
+  try {
+    return await db
+      .select()
+      .from(conversationMemory)
+      .where(
+        and(
+          eq(conversationMemory.chatId, chatId),
+          gte(conversationMemory.timestamp, startDate),
+          lt(conversationMemory.timestamp, endDate),
+        ),
+      )
+      .orderBy(asc(conversationMemory.timestamp))
+      .execute();
+  } catch (error) {
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to get conversation memory by date range',
+    );
+  }
+}
+
+export async function deleteOldConversationMemory({
+  chatId,
+  keepLatest = 50,
+}: {
+  chatId: string;
+  keepLatest?: number;
+}) {
+  try {
+    // Get the timestamp of the record that should be the oldest to keep
+    const cutoffResult = await db
+      .select({ timestamp: conversationMemory.timestamp })
+      .from(conversationMemory)
+      .where(eq(conversationMemory.chatId, chatId))
+      .orderBy(desc(conversationMemory.timestamp))
+      .limit(1)
+      .offset(keepLatest - 1)
+      .execute();
+
+    if (cutoffResult.length > 0) {
+      const cutoffTimestamp = cutoffResult[0].timestamp;
+      
+      await db
+        .delete(conversationMemory)
+        .where(
+          and(
+            eq(conversationMemory.chatId, chatId),
+            lt(conversationMemory.timestamp, cutoffTimestamp),
+          ),
+        )
+        .execute();
+    }
+  } catch (error) {
+    console.error('Failed to delete old conversation memory:', error);
+    // Don't throw error to prevent breaking the main flow
   }
 }

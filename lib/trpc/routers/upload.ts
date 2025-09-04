@@ -6,8 +6,17 @@ import { createTRPCRouter, protectedProcedure } from '../init';
 // File validation schema
 const fileUploadSchema = z.object({
   filename: z.string().min(1).max(255),
-  contentType: z.enum(['image/jpeg', 'image/png']),
-  size: z.number().max(5 * 1024 * 1024), // 5MB limit
+  contentType: z.enum([
+    'image/jpeg', 
+    'image/png', 
+    'image/gif', 
+    'image/bmp', 
+    'image/webp',
+    'application/pdf',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // DOCX
+    'application/msword' // DOC (legacy)
+  ]),
+  size: z.number().max(10 * 1024 * 1024), // 10MB limit for documents
   data: z.string(), // base64 encoded file data
 });
 

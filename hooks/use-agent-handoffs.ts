@@ -116,6 +116,22 @@ export function useAgentHandoffs(chatId: string) {
     }));
   }, []);
 
+  // Method to detect agent from message content
+  const detectAgentFromMessage = useCallback((messageText: string) => {
+    const text = messageText.toLowerCase();
+    
+    // Look for handoff phrases in the message content
+    if (text.includes('resume expert') || text.includes('resume specialist')) {
+      setHandoffState(prev => ({ ...prev, currentAgent: 'Resume Expert', isTransitioning: false, transitionMessage: null }));
+    } else if (text.includes('interview coach') || text.includes('interview specialist')) {
+      setHandoffState(prev => ({ ...prev, currentAgent: 'Interview Coach', isTransitioning: false, transitionMessage: null }));
+    } else if (text.includes('career planning specialist') || text.includes('career planner')) {
+      setHandoffState(prev => ({ ...prev, currentAgent: 'Career Planning Specialist', isTransitioning: false, transitionMessage: null }));
+    } else if (text.includes('job search advisor') || text.includes('job search specialist')) {
+      setHandoffState(prev => ({ ...prev, currentAgent: 'Job Search Advisor', isTransitioning: false, transitionMessage: null }));
+    }
+  }, []);
+
   const resetAgent = useCallback(() => {
     setHandoffState({
       isHandoffAvailable: false,
@@ -133,6 +149,7 @@ export function useAgentHandoffs(chatId: string) {
     dismissHandoff,
     processAgentResponse,
     updateCurrentAgent,
+    detectAgentFromMessage,
     resetAgent,
     isHandoffLoading: handoffMutation.isPending,
   };

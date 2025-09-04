@@ -15,7 +15,21 @@
       "Bash(npx tsc:*)",
       "WebFetch(domain:cookbook.openai.com)",
       "Bash(node:*)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Read(/E:\\personalProjects\\counsil\\lib\\ai\\tools/**)",
+      "Read(/E:\\personalProjects\\counsil\\lib\\agents/**)",
+      "Read(/E:\\personalProjects\\counsil\\lib/**)",
+      "Read(/E:\\personalProjects\\counsil\\lib\\db/**)",
+      "Read(/E:\\personalProjects\\counsil\\app\\(chat)\\api\\files\\upload/**)",
+      "Read(/E:\\personalProjects\\counsil\\app\\(chat)\\api\\chat/**)",
+      "Read(/E:\\personalProjects\\counsil\\lib\\trpc\\routers/**)",
+      "Read(/E:\\personalProjects\\counsil\\components/**)",
+      "Read(/E:\\personalProjects\\counsil\\components/**)",
+      "Read(/E:\\personalProjects\\counsil\\components/**)",
+      "Read(/E:\\personalProjects\\counsil\\components/**)",
+      "Read(/E:\\personalProjects\\counsil\\components/**)",
+      "Read(/E:\\personalProjects\\counsil\\app\\(chat)\\api\\chat/**)",
+      "Read(/E:\\personalProjects\\counsil\\app\\(chat)\\api\\chat/**)"
     ],
     "deny": [],
     "ask": []

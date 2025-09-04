@@ -206,76 +206,224 @@ How can I assist you with your career goals today?`,
   });
 }
 
-// Image analysis tool for OpenAI Agent SDK to handle vision capabilities
-export function createImageAnalysisTool() {
+// File analysis tool for OpenAI Agent SDK to handle images, PDFs, and documents
+export function createFileAnalysisTool() {
   const openaiClient = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
   });
 
   return tool({
-    description: 'Analyze images that users have attached to understand their content, read text from images, or answer questions about visual elements',
+    description: 'Analyze files (images, PDFs, documents) that users have uploaded to extract content, answer questions, or perform specific analysis tasks',
     parameters: z.object({
-      imageUrl: z.string().describe('The URL or data URI of the image to analyze'),
-      query: z.string().describe('What specific information to extract or question to answer about the image'),
-      analysisType: z.enum(['general', 'text_extraction', 'document_analysis', 'resume_review']).default('general').describe('The type of analysis to perform'),
+      fileUrl: z.string().describe('The URL of the file to analyze (image, PDF, or document)'),
+      fileName: z.string().nullable().describe('The original filename to help determine file type (null if not provided)'),
+      mediaType: z.string().nullable().describe('The media type/MIME type of the file (null if not provided)'),
+      query: z.string().describe('What specific information to extract or question to answer about the file'),
+      analysisType: z.enum(['general', 'text_extraction', 'document_analysis', 'resume_review', 'pdf_analysis']).default('general').describe('The type of analysis to perform'),
     }),
-    execute: async ({ imageUrl, query, analysisType }) => {
+    execute: async ({ fileUrl, fileName, mediaType, query, analysisType }) => {
       try {
-        let systemPrompt = 'You are a helpful assistant that can analyze images and provide detailed information about them.';
-        
-        switch (analysisType) {
-          case 'text_extraction':
-            systemPrompt = 'You are an expert at extracting and transcribing text from images. Provide accurate, complete text extraction.';
-            break;
-          case 'document_analysis':
-            systemPrompt = 'You are an expert at analyzing documents in images. Focus on structure, content, and key information.';
-            break;
-          case 'resume_review':
-            systemPrompt = 'You are a professional resume reviewer. Analyze the resume in the image and provide detailed feedback on formatting, content, and suggestions for improvement.';
-            break;
+        // Validate the file URL
+        if (!fileUrl || typeof fileUrl !== 'string') {
+          throw new Error('Invalid or missing file URL');
         }
 
-        const response = await openaiClient.chat.completions.create({
-          model: 'gpt-4o', // Use GPT-4o which has vision capabilities
-          messages: [
-            {
-              role: 'system',
-              content: systemPrompt
-            },
-            {
-              role: 'user',
-              content: [
-                {
-                  type: 'text',
-                  text: query
-                },
-                {
-                  type: 'image_url',
-                  image_url: {
-                    url: imageUrl
-                  }
-                }
-              ]
-            }
-          ],
-          max_tokens: 2000,
-        });
+        // Log for debugging
+        console.log('File Analysis Tool - URL received:', fileUrl);
+        console.log('File Analysis Tool - File name:', fileName);
+        console.log('File Analysis Tool - Media type:', mediaType);
+        console.log('File Analysis Tool - Query:', query);
+        console.log('File Analysis Tool - Analysis Type:', analysisType);
 
-        const analysisResult = response.choices[0]?.message?.content || 'I was unable to analyze the image.';
+        // Determine file type
+        const isImage = mediaType?.startsWith('image/') || 
+                       fileName?.match(/\.(jpg|jpeg|png|gif|bmp|webp)$/i);
+        const isPDF = mediaType === 'application/pdf' || 
+                     fileName?.endsWith('.pdf');
+        const isDocx = mediaType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || 
+                      fileName?.endsWith('.docx');
+
+        // Validate URL format
+        let validUrl: string;
+        try {
+          // Try to create URL object to validate
+          new URL(fileUrl);
+          validUrl = fileUrl;
+        } catch (urlError) {
+          // If it's not a valid URL, check if it's a data URL or needs protocol
+          if (fileUrl.startsWith('data:')) {
+            validUrl = fileUrl;
+          } else if (fileUrl.startsWith('//')) {
+            validUrl = `https:${fileUrl}`;
+          } else if (!fileUrl.startsWith('http')) {
+            validUrl = `https://${fileUrl}`;
+          } else {
+            throw new Error(`Invalid file URL format: ${fileUrl}`);
+          }
+        }
+
+        // Set up system prompt based on file type and analysis type
+        let systemPrompt = 'You are a helpful assistant that can analyze files and provide detailed information about them.';
+        
+        if (isPDF) {
+          switch (analysisType) {
+            case 'text_extraction':
+              systemPrompt = 'You are an expert at extracting and transcribing text from PDF documents. Provide accurate, complete text extraction while preserving structure.';
+              break;
+            case 'document_analysis':
+              systemPrompt = 'You are an expert at analyzing PDF documents. Focus on structure, content, key information, and document layout.';
+              break;
+            case 'resume_review':
+              systemPrompt = 'You are a professional resume reviewer. Analyze the resume in this PDF and provide detailed feedback on formatting, content, and suggestions for improvement.';
+              break;
+            case 'pdf_analysis':
+              systemPrompt = 'You are an expert at comprehensive PDF analysis. Extract key information, analyze structure, and provide insights about the document content.';
+              break;
+            default:
+              systemPrompt = 'You are an expert at analyzing PDF documents. Provide comprehensive analysis of the content, structure, and key information.';
+          }
+        } else if (isImage) {
+          switch (analysisType) {
+            case 'text_extraction':
+              systemPrompt = 'You are an expert at extracting and transcribing text from images. Provide accurate, complete text extraction.';
+              break;
+            case 'document_analysis':
+              systemPrompt = 'You are an expert at analyzing documents in images. Focus on structure, content, and key information.';
+              break;
+            case 'resume_review':
+              systemPrompt = 'You are a professional resume reviewer. Analyze the resume in the image and provide detailed feedback on formatting, content, and suggestions for improvement.';
+              break;
+            default:
+              systemPrompt = 'You are an expert at analyzing images and visual content. Provide detailed information about what you see.';
+          }
+        } else {
+          systemPrompt = 'You are an expert at analyzing various file types. Provide detailed analysis based on the file content and user query.';
+        }
+
+        // Prepare the API call based on file type
+        let response;
+        
+        if (isPDF) {
+          // For PDFs, we need to fetch the file and convert to base64 since URLs aren't supported
+          // Fetch the PDF file
+          const pdfResponse = await fetch(validUrl);
+          if (!pdfResponse.ok) {
+            throw new Error(`Failed to fetch PDF: ${pdfResponse.status}`);
+          }
+          
+          const pdfBuffer = await pdfResponse.arrayBuffer();
+          const base64Data = Buffer.from(pdfBuffer).toString('base64');
+          
+          // For PDFs, use the new direct PDF support in GPT-4o with base64 data
+          response = await openaiClient.chat.completions.create({
+            model: 'gpt-4o',
+            messages: [
+              {
+                role: 'system',
+                content: systemPrompt
+              },
+              {
+                role: 'user',
+                content: [
+                  {
+                    type: 'text',
+                    text: query
+                  },
+                  {
+                    type: 'file',
+                    file: {
+                      file_data: `data:application/pdf;base64,${base64Data}`,
+                      filename: fileName || 'document.pdf'
+                    }
+                  }
+                ]
+              }
+            ],
+            max_tokens: 2000,
+          });
+        } else if (isImage) {
+          // For images, use the vision capabilities
+          response = await openaiClient.chat.completions.create({
+            model: 'gpt-4o',
+            messages: [
+              {
+                role: 'system',
+                content: systemPrompt
+              },
+              {
+                role: 'user',
+                content: [
+                  {
+                    type: 'text',
+                    text: query
+                  },
+                  {
+                    type: 'image_url',
+                    image_url: {
+                      url: validUrl
+                    }
+                  }
+                ]
+              }
+            ],
+            max_tokens: 2000,
+          });
+        } else if (isDocx) {
+          // For DOCX files, we'll need to inform the user about limitations
+          throw new Error('DOCX files are not directly supported via the API yet. Please convert to PDF or extract text first.');
+        } else {
+          // For other file types, attempt text-based analysis
+          response = await openaiClient.chat.completions.create({
+            model: 'gpt-4o',
+            messages: [
+              {
+                role: 'system',
+                content: systemPrompt
+              },
+              {
+                role: 'user',
+                content: `${query}\n\nFile URL: ${validUrl}\nFile Type: ${mediaType || 'Unknown'}\nFilename: ${fileName || 'Unknown'}`
+              }
+            ],
+            max_tokens: 2000,
+          });
+        }
+
+        const analysisResult = response.choices[0]?.message?.content || 'I was unable to analyze the file.';
+
+        // Determine file type for response message
+        let fileType = 'file';
+        if (isPDF) fileType = 'PDF';
+        else if (isImage) fileType = 'image';
+        else if (isDocx) fileType = 'Word document';
 
         return {
           success: true,
           analysis: analysisResult,
           analysisType,
-          message: `Image Analysis (${analysisType}): ${analysisResult}`,
+          fileType,
+          message: `${fileType} Analysis (${analysisType}): ${analysisResult}`,
         };
       } catch (error) {
-        console.error('Image analysis tool error:', error);
+        console.error('File analysis tool error:', error);
+        
+        // Provide specific error messages based on the error type
+        let errorMessage = 'I encountered an error analyzing the file.';
+        
+        if (error.message.includes('invalid_image_url') || error.message.includes('invalid_pdf_url')) {
+          errorMessage = 'The file URL appears to be invalid or inaccessible. Please check that the file is publicly accessible and try uploading it again.';
+        } else if (error.message.includes('Invalid file URL format')) {
+          errorMessage = 'The file URL format is not supported. Please ensure you\'re uploading a valid file.';
+        } else if (error.message.includes('Invalid or missing file URL')) {
+          errorMessage = 'No valid file URL was found in your message. Please try uploading the file again.';
+        } else if (error.message.includes('DOCX files are not directly supported')) {
+          errorMessage = 'DOCX files are not directly supported via the API yet. Please convert your Word document to PDF format for analysis.';
+        }
         
         return {
           success: false,
           error: error.message,
-          message: `I encountered an error analyzing the image: ${error.message}. Please ensure the image is accessible and try again.`,
+          message: `${errorMessage} Error details: ${error.message}`,
         };
       }
     },

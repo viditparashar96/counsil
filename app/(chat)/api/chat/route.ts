@@ -1,4 +1,4 @@
-import { Agent, run } from '@openai/agents';
+import { Agent, run, user, assistant } from '@openai/agents';
 import OpenAI from 'openai';
 import { auth, type UserType } from '@/app/(auth)/auth';
 import { type RequestHints, systemPrompt } from '@/lib/ai/prompts';
@@ -173,24 +173,59 @@ export async function POST(request: Request) {
     // Convert UI messages to proper format for multimodal input
     const lastMessage = uiMessages[uiMessages.length - 1];
     
-    // Check if this message contains images
-    const hasImages = Array.isArray(lastMessage.parts) && 
-      lastMessage.parts.some(part => part.type === 'image');
+    // Check if this message contains analyzable files (images, PDFs, or documents)
+    const hasAnalyzableFiles = Array.isArray(lastMessage.parts) && 
+      lastMessage.parts.some(part => 
+        part.type === 'image' || 
+        (part.type === 'file' && part.mediaType && (
+          part.mediaType.startsWith('image/') || 
+          part.mediaType === 'application/pdf' ||
+          part.mediaType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        ))
+      );
     
     let userInput: string | Array<any>;
     
-    if (hasImages && Array.isArray(lastMessage.parts)) {
-      // Extract image URLs and text from the message
+    if (hasAnalyzableFiles && Array.isArray(lastMessage.parts)) {
+      // Extract file URLs and text from the message
       const textParts = lastMessage.parts.filter(part => part.type === 'text');
-      const imageParts = lastMessage.parts.filter(part => part.type === 'image');
+      const fileParts = lastMessage.parts.filter(part => 
+        part.type === 'image' || 
+        (part.type === 'file' && part.mediaType && (
+          part.mediaType.startsWith('image/') || 
+          part.mediaType === 'application/pdf' ||
+          part.mediaType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        ))
+      );
       
       // Get the user's text query
-      const textQuery = textParts.map(part => part.text).join(' ') || 'Please analyze this image';
+      const textQuery = textParts.map(part => part.text).join(' ') || 'Please analyze this file';
       
-      // Get the first image URL (support multiple images later)
-      const imageUrl = imageParts[0]?.url || imageParts[0]?.image || imageParts[0]?.data;
+      // Get the first file URL (support multiple files later)
+      // Handle different possible file part structures
+      const filePart = fileParts[0];
+      let fileUrl: string | undefined;
       
-      if (imageUrl) {
+      if (filePart) {
+        // Handle different file part structures
+        if (filePart.type === 'file' && filePart.url) {
+          // Handle file type with direct URL (Azure Blob format)
+          fileUrl = filePart.url;
+        } else {
+          // Try different possible properties where the URL might be stored for other formats
+          fileUrl = filePart.url || 
+                    filePart.image || 
+                    filePart.data ||
+                    filePart.content ||
+                    (filePart.image_url && filePart.image_url.url);
+        }
+        
+        // Debug logging to understand the structure
+        console.log('File part structure:', JSON.stringify(filePart, null, 2));
+        console.log('Extracted file URL:', fileUrl);
+      }
+      
+      if (fileUrl) {
         // Determine analysis type based on user's query
         let analysisType = 'general';
         const queryLower = textQuery.toLowerCase();
@@ -201,13 +236,16 @@ export async function POST(request: Request) {
           analysisType = 'text_extraction';
         } else if (queryLower.includes('document') || queryLower.includes('paper') || queryLower.includes('form')) {
           analysisType = 'document_analysis';
+        } else if (filePart?.mediaType === 'application/pdf') {
+          analysisType = 'pdf_analysis';
         }
         
-        // Create input that will trigger the image analysis tool
-        userInput = `I need you to analyze an image using the image analysis tool. The image URL is: ${imageUrl}. The user's question is: "${textQuery}". Please use analysis type: ${analysisType}`;
+        // Create input that will trigger the file analysis tool
+        userInput = `I need you to analyze a file using the file analysis tool. The file URL is: ${fileUrl}. The filename is: "${filePart?.name || 'Unknown'}". The media type is: "${filePart?.mediaType || 'Unknown'}". The user's question is: "${textQuery}". Please use analysis type: ${analysisType}`;
       } else {
-        // Fallback if no image URL found
-        userInput = textQuery || 'I have attached an image but there seems to be an issue accessing it.';
+        // Fallback if no file URL found - provide more debugging info
+        console.warn('No file URL found in file part. File parts:', JSON.stringify(fileParts, null, 2));
+        userInput = textQuery || 'I have attached a file but there seems to be an issue accessing the file URL. Please try uploading the file again.';
       }
     } else {
       userInput = Array.isArray(lastMessage.parts) 
@@ -215,9 +253,33 @@ export async function POST(request: Request) {
         : String(lastMessage.content || '');
     }
 
-    // Run agent with streaming
+    // Get previous conversation history for context (last 15 messages)
+    const previousMessages = messagesFromDb.slice(-15); // Get last 15 messages
+    
+    // Convert database messages to agent message format using SDK helpers
+    const conversationHistory = previousMessages.map(msg => {
+      const content = Array.isArray(msg.parts) 
+        ? msg.parts.map(part => part.type === 'text' ? part.text : '[file]').join(' ')
+        : String(msg.content || '');
+      
+      return msg.role === 'user' ? user(content) : assistant(content);
+    });
+
+    console.log('conversationHistory', conversationHistory.length, 'messages');
+    console.log('First few messages:', conversationHistory.slice(0, 2).map(msg => ({
+      role: msg.role,
+      content: typeof msg.content === 'string' ? msg.content.substring(0, 50) + '...' : 'complex content'
+    })));
+    
+    // Run agent with streaming - userInput as 2nd parameter, history in context
     const result = await run(agent, userInput, { 
       stream: true,
+      context: {
+        conversationHistory,
+        chatId: id,
+        session: session,
+        requestHints,
+      }
     });
 
     // Create compatible streaming response using the proper async iterator pattern
@@ -363,6 +425,9 @@ export async function POST(request: Request) {
             // Use accumulated content as the primary source, fallback to finalOutput
             const finalOutput = accumulatedContent || result.finalOutput || '';
             console.log('Final output length:', finalOutput.length);
+
+            // Memory is now handled automatically through conversation history
+            console.log('Using conversation history for memory (last 15 messages)');
             
             // Send text block end event if we started streaming
             if (hasStarted && !isControllerClosed) {

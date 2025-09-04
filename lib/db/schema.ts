@@ -168,3 +168,27 @@ export const stream = pgTable(
 );
 
 export type Stream = InferSelectModel<typeof stream>;
+
+export const conversationMemory = pgTable(
+  'ConversationMemory',
+  {
+    id: uuid('id').primaryKey().notNull().defaultRandom(),
+    chatId: uuid('chatId')
+      .notNull()
+      .references(() => chat.id),
+    role: varchar('role', { enum: ['user', 'assistant', 'system'] }).notNull(),
+    content: text('content').notNull(),
+    agentName: varchar('agentName', { length: 100 }),
+    metadata: json('metadata'), // For storing topics, handoffs, tool calls, etc.
+    timestamp: timestamp('timestamp').notNull().defaultNow(),
+    createdAt: timestamp('createdAt').notNull().defaultNow(),
+  },
+  (table) => ({
+    chatIdIdx: foreignKey({
+      columns: [table.chatId],
+      foreignColumns: [chat.id],
+    }),
+  }),
+);
+
+export type ConversationMemory = InferSelectModel<typeof conversationMemory>;

@@ -37,7 +37,7 @@ interface SpeechRecognitionErrorEvent extends Event {
   message?: string;
 }
 
-interface SpeechGrammar {}
+type SpeechGrammar = {}
 interface SpeechGrammarList {
   length: number;
   item(index: number): SpeechGrammar;

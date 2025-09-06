@@ -59,7 +59,7 @@ export async function generateTitleFromUserMessage({
     const title = result.finalOutput?.trim() || 'New Conversation';
     
     // Ensure title is under 80 characters
-    return title.length > 80 ? title.substring(0, 77) + '...' : title;
+    return title.length > 80 ? `${title.substring(0, 77)}...` : title;
   } catch (error) {
     console.error('Title generation error:', error);
     return 'New Conversation';

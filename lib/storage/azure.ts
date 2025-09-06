@@ -1,4 +1,4 @@
-import { BlobServiceClient, ContainerClient, BlockBlobClient, BlobUploadCommonResponse } from '@azure/storage-blob';
+import { BlobServiceClient, type ContainerClient, type BlockBlobClient, type BlobUploadCommonResponse } from '@azure/storage-blob';
 import { DefaultAzureCredential } from '@azure/identity';
 
 // Production-ready Azure Blob Storage service
@@ -6,7 +6,7 @@ class AzureStorageService {
   private blobServiceClient: BlobServiceClient;
   private containerName: string;
   private containerClient: ContainerClient;
-  private initialized: boolean = false;
+  private initialized = false;
   private initializationPromise: Promise<void> | null = null;
 
   constructor() {

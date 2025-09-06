@@ -49,7 +49,7 @@ export class CareerCounselingSystem {
   private careerCounselor: Agent;
   private context: CareerCounselingContext;
   private conversationMemory: ConversationMemory[] = [];
-  private maxMemoryItems: number = 50; // Limit memory to prevent token overflow
+  private maxMemoryItems = 50; // Limit memory to prevent token overflow
 
   constructor(context: CareerCounselingContext) {
     this.context = context;
@@ -612,7 +612,7 @@ Politely respond: "I'm a specialized career counselor and can only assist with c
         
         if (hasHistory) {
           instruction += `CONVERSATION HISTORY:\n`;
-          runContext.context!.conversationHistory!.forEach((msg: any, i: number) => {
+          runContext.context?.conversationHistory?.forEach((msg: any, i: number) => {
             const role = msg.role === 'user' ? 'USER' : 'ASSISTANT';
             const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
             instruction += `${i + 1}. ${role}: ${content}\n`;

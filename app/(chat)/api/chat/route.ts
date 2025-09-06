@@ -1,7 +1,7 @@
-import { Agent, run, user, assistant } from '@openai/agents';
+import { run, user, assistant } from '@openai/agents';
 import OpenAI from 'openai';
 import { auth, type UserType } from '@/app/(auth)/auth';
-import { type RequestHints, systemPrompt } from '@/lib/ai/prompts';
+import type { RequestHints, } from '@/lib/ai/prompts';
 import {
   createStreamId,
   deleteChatById,
@@ -14,7 +14,6 @@ import {
 import { convertToUIMessages, generateUUID } from '@/lib/utils';
 import { generateTitleFromUserMessage } from '../../actions';
 import { CareerCounselingSystem } from '@/lib/agents/career-counseling-system';
-import { isProductionEnvironment } from '@/lib/constants';
 import { entitlementsByUserType } from '@/lib/ai/entitlements';
 import { postRequestBodySchema, type PostRequestBody } from './schema';
 import { geolocation } from '@vercel/functions';
@@ -151,8 +150,8 @@ export async function POST(request: Request) {
       session,
       chatId: id,
       requestHints: {
-        longitude: typeof longitude === 'string' ? parseFloat(longitude) || undefined : longitude,
-        latitude: typeof latitude === 'string' ? parseFloat(latitude) || undefined : latitude,
+        longitude: typeof longitude === 'string' ? Number.parseFloat(longitude) || undefined : longitude,
+        latitude: typeof latitude === 'string' ? Number.parseFloat(latitude) || undefined : latitude,
         city,
         country,
       },
@@ -248,7 +247,7 @@ export async function POST(request: Request) {
                     filePart.image || 
                     filePart.data ||
                     filePart.content ||
-                    (filePart.image_url && filePart.image_url.url);
+                    (filePart.image_url?.url);
         }
         
         // Debug logging to understand the structure
@@ -299,7 +298,7 @@ export async function POST(request: Request) {
     console.log('conversationHistory', conversationHistory.length, 'messages');
     console.log('First few messages:', conversationHistory.slice(0, 2).map(msg => ({
       role: msg.role,
-      content: typeof msg.content === 'string' ? msg.content.substring(0, 50) + '...' : 'complex content'
+      content: typeof msg.content === 'string' ? `${msg.content.substring(0, 50)}...` : 'complex content'
     })));
     
     // Run agent with streaming - userInput as 2nd parameter, history in context
@@ -333,7 +332,7 @@ export async function POST(request: Request) {
         };
 
         const messageId = generateUUID();
-        let textBlockId = generateUUID();
+        const textBlockId = generateUUID();
         let hasStarted = false;
         
         const safeClose = () => {
@@ -449,7 +448,7 @@ export async function POST(request: Request) {
                         const mockDataStream = {
                           write: (message: any) => {
                             console.log('Mock dataStream write:', message);
-                            if (message.type && message.type.startsWith('data-')) {
+                            if (message.type?.startsWith('data-')) {
                               safeEnqueue(message);
                             }
                           }
@@ -495,7 +494,7 @@ export async function POST(request: Request) {
                         const mockDataStream = {
                           write: (message: any) => {
                             console.log('Mock dataStream write:', message);
-                            if (message.type && message.type.startsWith('data-')) {
+                            if (message.type?.startsWith('data-')) {
                               safeEnqueue(message);
                             }
                           }

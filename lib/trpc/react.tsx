@@ -58,7 +58,7 @@ export function TRPCReactProvider({
             (opts.direction === 'down' && opts.result instanceof Error),
         }),
         httpBatchLink({
-          url: getBaseUrl() + '/api/trpc',
+          url: `${getBaseUrl()}/api/trpc`,
           transformer: superjson,
           headers() {
             return {

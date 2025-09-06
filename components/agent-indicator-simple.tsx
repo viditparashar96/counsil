@@ -92,7 +92,7 @@ export function AgentIndicatorSimple({ currentAgent, isTransitioning, transition
             <div className="flex items-center justify-center space-x-2 text-sm text-gray-600">
               <motion.div
                 animate={{ rotate: 360 }}
-                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                transition={{ duration: 1, repeat: Number.POSITIVE_INFINITY, ease: "linear" }}
                 className="text-purple-500"
               >
                 ✨
@@ -119,7 +119,7 @@ export function AgentIndicatorSimple({ currentAgent, isTransitioning, transition
                     {config.title}
                   </h3>
                   <div className="flex items-center space-x-1">
-                    <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                    <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
                     <span className="text-xs text-green-600 font-medium">Active</span>
                   </div>
                 </div>

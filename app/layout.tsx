@@ -3,7 +3,6 @@ import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import { ThemeProvider } from '@/components/theme-provider';
 import { TRPCReactProvider } from '@/lib/trpc/react';
-import { AppErrorBoundary } from '@/components/error-boundary';
 
 import './globals.css';
 import { SessionProvider } from 'next-auth/react';

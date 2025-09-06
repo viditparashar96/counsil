@@ -4,7 +4,6 @@ import { DefaultChatTransport } from 'ai';
 import { useChat } from '@ai-sdk/react';
 import { useEffect, useState } from 'react';
 import { ChatHeader } from '@/components/chat-header';
-import type { Vote } from '@/lib/db/schema';
 import { fetchWithErrorHandlers, generateUUID, cn } from '@/lib/utils';
 import { Artifact } from './artifact';
 import { MultimodalInput } from './multimodal-input';
@@ -22,7 +21,6 @@ import { useDataStream } from './data-stream-provider';
 import { api } from '@/lib/trpc';
 import { useAgentHandoffs } from '@/hooks/use-agent-handoffs';
 import { AgentHandoffBanner } from './agent-handoff-banner';
-import { AgentIndicator } from './agent-indicator';
 // Removed: explicit top loader chip; we use gradient bar as the loader now
 
 export function Chat({

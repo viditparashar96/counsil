@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { createTRPCRouter, protectedProcedure } from '../init';
-import { agentStreamAdapter } from '@/lib/ai/openai-agents-integration';
 
 export const agentsRouter = createTRPCRouter({
   // Get available career counseling agents

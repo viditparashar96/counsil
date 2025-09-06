@@ -33,7 +33,7 @@ export async function fetchWithErrorHandlers(
   try {
     // Add a longer timeout for streaming requests
     const isStreamingRequest = init?.headers && 
-      (init.headers as Record<string, string>)['Accept']?.includes('text/event-stream');
+      (init.headers as Record<string, string>).Accept?.includes('text/event-stream');
       
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), isStreamingRequest ? 120000 : 30000); // 2 minutes for streaming, 30 seconds for regular

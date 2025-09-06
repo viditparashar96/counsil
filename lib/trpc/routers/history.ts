@@ -29,8 +29,8 @@ export const historyRouter = createTRPCRouter({
       });
 
       // Separate the actual chats from the cursor check
-      const hasNextPage = result.length > limit;
-      const chats = hasNextPage ? result.slice(0, -1) : result;
+      const hasNextPage = (result as any[]).length > limit;
+      const chats = hasNextPage ? (result as any[]).slice(0, -1) : result;
       const nextCursor = hasNextPage ? chats[chats.length - 1]?.id : undefined;
 
       return {

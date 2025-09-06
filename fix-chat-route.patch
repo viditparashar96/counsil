@@ -1,0 +1,21 @@
+# This patch file contains the key fixes needed for the chat route TypeScript errors
+
+# Fix 1: Add content property to UIMessage
+# Around line 104, ensure message has content property
+
+# Fix 2: Fix hasAnalyzableFiles check with proper type guards
+# Around line 167-180, use proper type guards for part properties
+
+# Fix 3: Fix file part property access
+# Around lines 190-250, use 'in' operator for type guarding
+
+# Fix 4: Fix textParts mapping
+# Use proper type guards when accessing part.text
+
+# Fix 5: Fix file URL extraction
+# Use proper type guards when accessing file properties
+
+# The key pattern is to use:
+# - 'propertyName' in part to check if property exists
+# - part.type === 'specificType' to narrow types
+# - Proper fallbacks for missing properties

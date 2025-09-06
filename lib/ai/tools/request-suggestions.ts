@@ -6,6 +6,7 @@ import type { Suggestion } from '@/lib/db/schema';
 import { generateUUID } from '@/lib/utils';
 import { myProvider } from '../providers';
 import type { ChatMessage } from '@/lib/types';
+import type { LanguageModel } from 'ai';
 
 interface RequestSuggestionsProps {
   session: Session;
@@ -23,7 +24,7 @@ export const requestSuggestions = ({
         .string()
         .describe('The ID of the document to request edits'),
     }),
-    execute: async ({ documentId }) => {
+    execute: async ({ documentId }: { documentId: string }) => {
       const document = await getDocumentById({ id: documentId });
 
       if (!document || !document.content) {
@@ -36,8 +37,11 @@ export const requestSuggestions = ({
         Omit<Suggestion, 'userId' | 'createdAt' | 'documentCreatedAt'>
       > = [];
 
+      // Cast to LanguageModel to fix typing issues
+      const model = myProvider.languageModel('artifact-model') as LanguageModel;
+
       const { elementStream } = streamObject({
-        model: myProvider.languageModel('artifact-model'),
+        model: model,
         system:
           'You are a help writing assistant. Given a piece of writing, please offer suggestions to improve the piece of writing and describe the change. It is very important for the edits to contain full sentences instead of just words. Max 5 suggestions.',
         prompt: document.content,
@@ -50,43 +54,43 @@ export const requestSuggestions = ({
       });
 
       for await (const element of elementStream) {
-        // @ts-ignore todo: fix type
         const suggestion: Suggestion = {
           originalText: element.originalSentence,
           suggestedText: element.suggestedSentence,
           description: element.description,
           id: generateUUID(),
           documentId: documentId,
-          isResolved: false,
+          userId: session.user?.id || '',
+          createdAt: new Date(),
+          documentCreatedAt: document.createdAt,
         };
 
-        dataStream.write({
-          type: 'data-suggestion',
-          data: suggestion,
-          transient: true,
-        });
-
         suggestions.push(suggestion);
-      }
 
-      if (session.user?.id) {
-        const userId = session.user.id;
-
-        await saveSuggestions({
-          suggestions: suggestions.map((suggestion) => ({
-            ...suggestion,
-            userId,
-            createdAt: new Date(),
-            documentCreatedAt: document.createdAt,
-          })),
+        dataStream.writeStreamData({
+          type: 'suggestion',
+          suggestion,
         });
       }
+
+      await saveSuggestions({
+        suggestions: suggestions.map((suggestion) => ({
+          originalText: suggestion.originalText,
+          suggestedText: suggestion.suggestedText,
+          description: suggestion.description,
+          id: suggestion.id,
+          documentId: suggestion.documentId,
+          userId: suggestion.userId,
+        })),
+      });
+
+      dataStream.writeStreamData({
+        type: 'suggestions-finish',
+        suggestions: suggestions,
+      });
 
       return {
-        id: documentId,
-        title: document.title,
-        kind: document.kind,
-        message: 'Suggestions have been added to the document',
+        suggestions,
       };
     },
   });

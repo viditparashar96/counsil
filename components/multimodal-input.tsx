@@ -40,7 +40,7 @@ import type { Attachment, ChatMessage } from '@/lib/types';
 import { chatModels } from '@/lib/ai/models';
 import { saveChatModelAsCookie } from '@/app/(chat)/actions';
 import { startTransition } from 'react';
-import { useSpeechToText } from '@/hooks/use-speech-to-text';
+import { useWhisperRecording } from '@/hooks/use-whisper-recording';
 
 // Helper function to convert file to base64
 const fileToBase64 = (file: File): Promise<string> => {
@@ -269,39 +269,25 @@ function PureMultimodalInput({
 
   const { isAtBottom, scrollToBottom } = useScrollToBottom();
 
-  // Web Speech API integration
-  const { isSupported, isListening, toggle, stop: stopListening, errorCode } = useSpeechToText({
-    interimResults: true,
-    continuous: true,
-    lang: 'en-US',
-    retryOnNetworkError: true,
-    maxNetworkRetries: 1,
-    onStart: () => {
-      baseInputRef.current = input ? input.trimEnd() + (input.endsWith(' ') ? '' : ' ') : '';
-    },
-    onResult: (spoken, _isFinal) => {
-      const next = (baseInputRef.current + spoken).replace(/\s+/g, ' ').trimStart();
-      setInput(next);
+  // Whisper recording integration
+  const { isSupported, isRecording, isProcessing, toggleRecording } = useWhisperRecording({
+    onTranscript: (transcribedText) => {
+      // Add transcribed text to existing input
+      const currentInput = input.trim();
+      const newInput = currentInput 
+        ? `${currentInput} ${transcribedText}` 
+        : transcribedText;
+      setInput(newInput);
+      
       // Resize textarea as text grows
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
         textareaRef.current.style.height = `${Math.min(200, Math.max(72, textareaRef.current.scrollHeight))}px`;
       }
     },
-    onError: (err) => {
-      console.error('Speech recognition error:', err);
-      const code = (err as any)?.error as string | undefined;
-      if (code === 'network') {
-        toast.error('Speech recognition network error. Check VPN/AdBlock/Firewall and HTTPS.');
-      } else if (code === 'audio-capture') {
-        toast.error('No microphone found or in use by another app.');
-      } else if (code === 'no-speech') {
-        toast.error('No speech detected. Try again closer to the mic.');
-      } else if (code === 'not-allowed' || code === 'service-not-allowed') {
-        toast.error('Microphone permission denied. Allow access and retry.');
-      } else {
-        toast.error('Speech recognition error. Try again.');
-      }
+    onError: (error) => {
+      console.error('Whisper recording error:', error);
+      toast.error(error);
     },
   });
 
@@ -364,10 +350,13 @@ function PureMultimodalInput({
           event.preventDefault();
           if (status !== 'ready') {
             toast.error('Please wait for the model to finish its response!');
+          } else if (isProcessing) {
+            toast.error('Please wait for audio processing to complete!');
           } else {
-            // If listening, stop before submitting
-            if (isListening) {
-              stopListening();
+            // If recording, stop before submitting
+            if (isRecording) {
+              toggleRecording();
+              return; // Don't submit immediately, wait for processing
             }
             submitForm();
           }
@@ -410,7 +399,11 @@ function PureMultimodalInput({
         <PromptInputTextarea
           data-testid="multimodal-input"
           ref={textareaRef}
-          placeholder={isListening ? 'Listening… speak now' : 'Send a message...'}
+          placeholder={
+            isRecording ? 'Recording… speak now' : 
+            isProcessing ? 'Processing audio...' : 
+            'Send a message...'
+          }
           value={input}
           onChange={handleInput}
           minHeight={72}
@@ -425,43 +418,64 @@ function PureMultimodalInput({
             <AttachmentsButton fileInputRef={fileInputRef} status={status} />
             <ModelSelectorCompact selectedModelId={selectedModelId} />
 
-            {/* Microphone button - browser-only speech recognition */}
+            {/* Microphone button - Whisper recording */}
             <Button
               type="button"
               data-testid="mic-button"
               onClick={(e) => {
                 e.preventDefault();
                 if (!isSupported) {
-                  toast.error('Speech recognition not supported in this browser');
+                  toast.error('Audio recording not supported in this browser');
                   return;
                 }
-                toggle();
+                toggleRecording();
               }}
               variant="ghost"
-              disabled={status !== 'ready'}
-              className={`${isListening ? 'bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-300' : ''} rounded-md p-[7px] h-fit`}
-              aria-pressed={isListening}
-              aria-label={isListening ? 'Stop listening' : 'Start voice input'}
-              title={isListening ? 'Stop listening' : 'Start voice input'}
+              disabled={status !== 'ready' || isProcessing}
+              className={`${
+                isRecording 
+                  ? 'bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-300' 
+                  : isProcessing 
+                  ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-300'
+                  : ''
+              } rounded-md p-[7px] h-fit`}
+              aria-pressed={isRecording}
+              aria-label={
+                isRecording ? 'Stop recording' : 
+                isProcessing ? 'Processing audio...' : 
+                'Start voice input'
+              }
+              title={
+                isRecording ? 'Stop recording' : 
+                isProcessing ? 'Processing audio...' : 
+                'Start voice input'
+              }
             >
-              {isListening ? <Square size={14} /> : <Mic size={14} />}
+              {isRecording ? <Square size={14} /> : <Mic size={14} />}
             </Button>
 
-            {isListening && (
-              <div className="flex items-center gap-2 text-xs text-red-600 dark:text-red-400 select-none" aria-live="polite">
-                <span className="inline-flex items-center">
-                  <span className="mr-2 inline-block size-2 rounded-full bg-red-500 animate-pulse" />
-                  Listening…
-                </span>
-                <div className="ml-1 flex items-end gap-[3px] h-4">
-                  <span className="w-1 bg-red-500 rounded-sm animate-bounce" style={{ height: '8px', animationDelay: '0ms' }} />
-                  <span className="w-1 bg-red-500 rounded-sm animate-bounce" style={{ height: '12px', animationDelay: '100ms' }} />
-                  <span className="w-1 bg-red-500 rounded-sm animate-bounce" style={{ height: '16px', animationDelay: '200ms' }} />
-                  <span className="w-1 bg-red-500 rounded-sm animate-bounce" style={{ height: '12px', animationDelay: '300ms' }} />
-                  <span className="w-1 bg-red-500 rounded-sm animate-bounce" style={{ height: '8px', animationDelay: '400ms' }} />
-                </div>
-                {errorCode === 'network' && (
-                  <span className="ml-2 text-[10px] opacity-80">Network issue — check VPN/AdBlock</span>
+            {(isRecording || isProcessing) && (
+              <div className="flex items-center gap-2 text-xs select-none" aria-live="polite">
+                {isRecording && (
+                  <>
+                    <span className="inline-flex items-center text-red-600 dark:text-red-400">
+                      <span className="mr-2 inline-block size-2 rounded-full bg-red-500 animate-pulse" />
+                      Recording…
+                    </span>
+                    <div className="ml-1 flex items-end gap-[3px] h-4">
+                      <span className="w-1 bg-red-500 rounded-sm animate-bounce" style={{ height: '8px', animationDelay: '0ms' }} />
+                      <span className="w-1 bg-red-500 rounded-sm animate-bounce" style={{ height: '12px', animationDelay: '100ms' }} />
+                      <span className="w-1 bg-red-500 rounded-sm animate-bounce" style={{ height: '16px', animationDelay: '200ms' }} />
+                      <span className="w-1 bg-red-500 rounded-sm animate-bounce" style={{ height: '12px', animationDelay: '300ms' }} />
+                      <span className="w-1 bg-red-500 rounded-sm animate-bounce" style={{ height: '8px', animationDelay: '400ms' }} />
+                    </div>
+                  </>
+                )}
+                {isProcessing && (
+                  <span className="inline-flex items-center text-yellow-600 dark:text-yellow-400">
+                    <span className="mr-2 inline-block size-2 rounded-full bg-yellow-500 animate-pulse" />
+                    Processing audio...
+                  </span>
                 )}
               </div>
             )}
@@ -469,13 +483,13 @@ function PureMultimodalInput({
 
           {status === 'submitted' ? (
             <StopButton stop={stop} setMessages={setMessages} />
-          ) : isListening ? (
-            // While listening, replace send with a stop-listening control
+          ) : isRecording ? (
+            // While recording, replace send with a stop-recording control
             <Button
-              data-testid="stop-listening-button"
+              data-testid="stop-recording-button"
               onClick={(e) => {
                 e.preventDefault();
-                stopListening();
+                toggleRecording();
               }}
               className="p-3 text-red-700 bg-red-100 rounded-full hover:bg-red-200 dark:bg-red-900/30 dark:hover:bg-red-900/40 dark:text-red-300"
             >
@@ -484,7 +498,7 @@ function PureMultimodalInput({
           ) : (
             <PromptInputSubmit
               status={status}
-              disabled={!input.trim() || uploadQueue.length > 0}
+              disabled={!input.trim() || uploadQueue.length > 0 || isProcessing}
               className="p-3 text-gray-700 bg-gray-200 rounded-full hover:bg-gray-300 dark:bg-sidebar-accent dark:hover:bg-sidebar-accent/80 dark:text-gray-300"
             >
               <ArrowUpIcon size={20} />

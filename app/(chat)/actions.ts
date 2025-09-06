@@ -1,6 +1,6 @@
 'use server';
 
-import { Agent, run } from '@openai/agents';
+import { Agent, run, setDefaultOpenAIClient } from '@openai/agents';
 import OpenAI from 'openai';
 import { cookies } from 'next/headers';
 import {
@@ -31,6 +31,9 @@ export async function generateTitleFromUserMessage({
 }: {
   message: UIMessage;
 }) {
+  // Set the default OpenAI client for the SDK
+  setDefaultOpenAIClient(openaiClient);
+
   // Create a title generation agent using OpenAI Agent SDK
   const titleAgent = new Agent({
     name: 'Title Generator',
@@ -40,7 +43,6 @@ export async function generateTitleFromUserMessage({
     - Do not use quotes or colons
     - Return only the title, nothing else`,
     model: 'gpt-4o-mini',
-    client: openaiClient,
   });
 
   try {

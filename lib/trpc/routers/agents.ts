@@ -145,7 +145,7 @@ export const agentsRouter = createTRPCRouter({
           .slice(-limit)
           .map((msg) => ({
             id: msg.id,
-            content: msg.content,
+            content: (msg as any).content || (Array.isArray(msg.parts) ? (msg.parts as any[]).map((p: any) => p.type === 'text' ? p.text : '[file]').join(' ') : 'No content'),
             timestamp: msg.createdAt,
           }));
 

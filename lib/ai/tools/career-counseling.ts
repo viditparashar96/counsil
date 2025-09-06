@@ -26,50 +26,62 @@ The tool will automatically determine which career specialist to use and provide
       context: z.string().optional().describe('Additional context about the user\'s situation'),
       preferredAgent: z.enum(['resume', 'interview', 'planner', 'jobsearch']).optional().describe('Specific agent to use if known'),
     }),
-    execute: async ({ query, context, preferredAgent }) => {
+    execute: async ({ query, context, preferredAgent }: { query: string; context?: string; preferredAgent?: 'resume' | 'interview' | 'planner' | 'jobsearch' }) => {
       try {
         // Dynamic import to avoid server-only bundling issues
-        const { CareerCounselingRouter } = await import('@/lib/agents/router');
-        const router = new CareerCounselingRouter();
+        const { CareerCounselingSystem } = await import('@/lib/agents/career-counseling-system');
+        
+        // Create a career counseling system instance
+        const careerSystem = new CareerCounselingSystem({
+          session,
+          chatId,
+          conversationHistory: [], // This would be populated from the chat context in a real scenario
+        });
 
         // Route the message through the career counseling system
-        const result = await router.routeMessage(query, {
-          userId: session.user.id,
-          chatId,
-          currentAgent: preferredAgent,
+        const result = await careerSystem.routeMessage(query, {
+          preferredAgent,
           conversationHistory: [],
         });
 
-        // Send agent information to the data stream
-        dataStream.writeData({
-          type: 'agent-response',
-          content: {
-            agentUsed: result.agentUsed,
-            agentName: result.agentUsed === 'resume' ? 'Resume Expert' 
-              : result.agentUsed === 'interview' ? 'Interview Coach'
-              : result.agentUsed === 'planner' ? 'Career Planner' 
-              : 'Job Search Advisor',
-            response: result.response,
-            suggestedAgent: result.suggestedAgent,
-            handoffMessage: result.handoffMessage,
-          }
-        });
-
-        // Return structured response
-        let responseMessage = `**${result.agentUsed === 'resume' ? 'Resume Expert' 
-          : result.agentUsed === 'interview' ? 'Interview Coach'
-          : result.agentUsed === 'planner' ? 'Career Planner' 
-          : 'Job Search Advisor'} Response:**\n\n${result.response}`;
+        // Format response for the main agent
+        let responseMessage = `**${result.agentUsed} Response:**\n\n${result.response}`;
 
         if (result.handoffMessage && result.suggestedAgent) {
           responseMessage += `\n\n---\n\n💡 **Suggestion:** ${result.handoffMessage}`;
         }
 
-        return responseMessage;
+        // Write to the data stream to show the career specialist is working
+        dataStream.writeData({
+          type: 'step-start',
+          step: {
+            toolCallId: 'career-counseling',
+            toolName: 'career-counseling',
+            stepType: 'tool-call',
+            reasoning: `Routing your career question to our ${result.agentUsed} for specialized guidance...`,
+          },
+        });
+
+        dataStream.writeData({
+          type: 'step-finish',
+          step: {
+            toolCallId: 'career-counseling',
+            toolName: 'career-counseling',
+            stepType: 'tool-call',
+            result: responseMessage,
+          },
+        });
+
+        return {
+          response: responseMessage,
+          agentUsed: result.agentUsed,
+          suggestedAgent: result.suggestedAgent,
+          handoffMessage: result.handoffMessage,
+        };
       } catch (error) {
         console.error('Career counseling tool error:', error);
         
-        return `I encountered an issue connecting with our career counseling specialists. Let me help you directly with your career question: ${query}. 
+        const errorMessage = `I encountered an issue connecting with our career counseling specialists. Let me help you directly with your career question: ${query}. 
 
 For comprehensive career guidance, our platform includes specialized agents for:
 - **Resume Expert**: Resume writing, optimization, and ATS compliance
@@ -78,6 +90,32 @@ For comprehensive career guidance, our platform includes specialized agents for:
 - **Job Search Advisor**: Job market navigation and networking strategies
 
 How can I assist you with your career goals today?`;
+
+        dataStream.writeData({
+          type: 'step-start',
+          step: {
+            toolCallId: 'career-counseling',
+            toolName: 'career-counseling',
+            stepType: 'tool-call',
+            reasoning: 'Processing your career question...',
+          },
+        });
+
+        dataStream.writeData({
+          type: 'step-finish',
+          step: {
+            toolCallId: 'career-counseling',
+            toolName: 'career-counseling',
+            stepType: 'tool-call',
+            result: errorMessage,
+          },
+        });
+
+        return {
+          response: errorMessage,
+          error: error instanceof Error ? error.message : String(error),
+          agentUsed: 'Error Handler',
+        };
       }
     },
   });

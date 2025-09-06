@@ -5,11 +5,9 @@ import { useChat } from '@ai-sdk/react';
 import { useEffect, useState } from 'react';
 import { ChatHeader } from '@/components/chat-header';
 import { fetchWithErrorHandlers, generateUUID, cn } from '@/lib/utils';
-import { Artifact } from './artifact';
 import { MultimodalInput } from './multimodal-input';
 import { Messages } from './messages';
 import type { VisibilityType } from './visibility-selector';
-import { useArtifactSelector } from '@/hooks/use-artifact';
 import { toast } from './toast';
 import type { Session } from 'next-auth';
 import { useSearchParams } from 'next/navigation';
@@ -87,7 +85,9 @@ export function Chat({
         };
       },
     }),
-    onData: (dataPart) => {
+    onData: (dataPart:any) => {
+
+      console.log('dataPart', dataPart);
       setDataStream((ds) => (ds ? [...ds, dataPart] : []));
       
       // Process agent responses for handoff suggestions
@@ -142,7 +142,8 @@ export function Chat({
   );
 
   const [attachments, setAttachments] = useState<Array<Attachment>>([]);
-  const isArtifactVisible = useArtifactSelector((state) => state.isVisible);
+
+
 
   useAutoResume({
     autoResume,
@@ -184,7 +185,6 @@ export function Chat({
                     setMessages={setMessages}
                     regenerate={regenerate}
                     isReadonly={isReadonly}
-                    isArtifactVisible={isArtifactVisible}
                   />
                 </div>
                 {!isReadonly && (
@@ -215,7 +215,6 @@ export function Chat({
                 setMessages={setMessages}
                 regenerate={regenerate}
                 isReadonly={isReadonly}
-                isArtifactVisible={isArtifactVisible}
               />
 
               {/* Agent Handoff Banner */}
@@ -252,23 +251,6 @@ export function Chat({
         </div>
       </div>
 
-      <Artifact
-        chatId={id}
-        input={input}
-        setInput={setInput}
-        status={status}
-        stop={stop}
-        attachments={attachments}
-        setAttachments={setAttachments}
-        sendMessage={sendMessage}
-        messages={messages}
-        setMessages={setMessages}
-        regenerate={regenerate}
-        votes={votes}
-        isReadonly={isReadonly}
-        selectedVisibilityType={visibilityType}
-        selectedModelId={initialChatModel}
-      />
     </>
   );
 }

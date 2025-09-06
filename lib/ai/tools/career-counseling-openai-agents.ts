@@ -68,7 +68,7 @@ For comprehensive career guidance, our platform includes specialized agents for:
 - **Job Search Advisor**: Job market navigation and networking strategies
 
 How can I assist you with your career goals today?`,
-          error: error.message,
+          error: (error as any).message || 'An unknown error occurred',
         };
       }
     },

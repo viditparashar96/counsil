@@ -115,9 +115,9 @@ export function useWhisperRecording(options: UseWhisperRecordingOptions = {}) {
     }
   }, [isRecording, startRecording, stopRecording]);
 
-  const isSupported = typeof navigator !== 'undefined' && 
-    navigator.mediaDevices && 
-    navigator.mediaDevices.getUserMedia &&
+  const isSupported =
+    typeof window !== 'undefined' &&
+    typeof navigator.mediaDevices?.getUserMedia === 'function' &&
     typeof MediaRecorder !== 'undefined';
 
   return {

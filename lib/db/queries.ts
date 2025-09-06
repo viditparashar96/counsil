@@ -30,7 +30,6 @@ import {
   conversationMemory,
   type ConversationMemory,
 } from './schema';
-import type { ArtifactKind } from '@/components/artifact';
 import { generateUUID } from '../utils';
 import { generateHashedPassword } from './utils';
 import type { VisibilityType } from '@/components/visibility-selector';
@@ -288,7 +287,7 @@ export async function saveDocument({
 }: {
   id: string;
   title: string;
-  kind: ArtifactKind;
+  kind:   any;
   content: string;
   userId: string;
 }) {

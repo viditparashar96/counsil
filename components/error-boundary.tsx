@@ -131,7 +131,7 @@ export class ProductionErrorBoundary extends React.Component<
         <FallbackComponent
           error={this.state.error!}
           resetErrorBoundary={this.resetErrorBoundary}
-          componentStack={this.state.errorInfo?.componentStack}
+          componentStack={this.state.errorInfo?.componentStack || ''}
         />
       );
     }

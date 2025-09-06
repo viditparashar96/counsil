@@ -1,4 +1,3 @@
-import type { ArtifactKind } from '@/components/artifact';
 import type { Geo } from '@vercel/functions';
 
 export const artifactsPrompt = `
@@ -106,7 +105,7 @@ You are a spreadsheet creation assistant. Create a spreadsheet in csv format bas
 
 export const updateDocumentPrompt = (
   currentContent: string | null,
-  type: ArtifactKind,
+  type: any,
 ) =>
   type === 'text'
     ? `\

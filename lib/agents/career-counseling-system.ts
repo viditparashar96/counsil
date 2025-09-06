@@ -8,12 +8,9 @@ const openaiClient = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Tool imports
+// Tool imports - document tools removed for basic chat functionality
 import { 
-  getWeatherTool,
-  createDocumentTool,
-  updateDocumentTool,
-  requestSuggestionsTool,
+  // getWeatherTool,
   createFileAnalysisTool,
 } from '../ai/tools/openai-agents-tools';
 
@@ -42,11 +39,11 @@ export interface ConversationMemory {
 }
 
 export class CareerCounselingSystem {
-  private resumeExpert: Agent;
-  private interviewCoach: Agent;
-  private careerPlanningSpecialist: Agent;
-  private jobSearchAdvisor: Agent;
-  private careerCounselor: Agent;
+  private resumeExpert!: Agent<CareerCounselingContext>;
+  private interviewCoach!: Agent<CareerCounselingContext>;
+  private careerPlanningSpecialist!: Agent<CareerCounselingContext>;
+  private jobSearchAdvisor!: Agent<CareerCounselingContext>;
+  private careerCounselor!: Agent<CareerCounselingContext>;
   private context: CareerCounselingContext;
   private conversationMemory: ConversationMemory[] = [];
   private maxMemoryItems = 50; // Limit memory to prevent token overflow
@@ -200,20 +197,16 @@ export class CareerCounselingSystem {
       }
     });
 
-    // Shared tools for all agents
+    // Shared tools for all agents - document tools removed for basic chat functionality
     const sharedTools = [
       conversationMemoryTool,
-      getWeatherTool,
-      createDocumentTool({ session: this.context.session }),
-      updateDocumentTool({ session: this.context.session }),
-      requestSuggestionsTool({ session: this.context.session }),
+      // getWeatherTool,
       createFileAnalysisTool(),
     ];
 
     // Resume Expert Agent
     this.resumeExpert = new Agent<CareerCounselingContext>({
       name: 'Resume Expert',
-      client: openaiClient,
       model: 'gpt-4o',
       instructions: (runContext: RunContext<CareerCounselingContext>) =>
         `🎯 **RESUME EXPERT SPECIALIST** 🎯
@@ -298,7 +291,6 @@ ${resumeContent}
     // Interview Coach Agent
     this.interviewCoach = new Agent({
       name: 'Interview Coach',
-      client: openaiClient,
       model: 'gpt-4o',
       instructions: `🎯 **INTERVIEW COACH SPECIALIST** 🎯
 
@@ -385,7 +377,6 @@ Stay focused on interview coaching - this is your specialized domain within care
     // Career Planning Specialist Agent
     this.careerPlanningSpecialist = new Agent({
       name: 'Career Planning Specialist',
-      client: openaiClient,
       model: 'gpt-4o',
       instructions: `🎯 **CAREER PLANNING SPECIALIST** 🎯
 
@@ -478,7 +469,6 @@ Provide:
     // Job Search Advisor Agent
     this.jobSearchAdvisor = new Agent({
       name: 'Job Search Advisor',
-      client: openaiClient,
       model: 'gpt-4o',
       instructions: `🎯 **JOB SEARCH ADVISOR SPECIALIST** 🎯
 
@@ -572,7 +562,6 @@ Include:
     // Career Counselor (Triage Agent)
     this.careerCounselor = new Agent<CareerCounselingContext>({
       name: 'Career Counselor',
-      client: openaiClient,
       model: 'gpt-4o-mini', // Using smaller model for triage as it's more cost-effective
       instructions: (runContext: RunContext<CareerCounselingContext>) => {
         const hasHistory = runContext.context?.conversationHistory && runContext.context.conversationHistory.length > 0;
@@ -665,20 +654,16 @@ Remember: You are a CAREER-FOCUSED AI assistant. Stay strictly within your caree
       tools: [...sharedTools],
       handoffs: [
         handoff(this.resumeExpert, {
-          tool_description: 'Connect with Resume Expert for resume writing, optimization, and ATS compliance help',
-          on_handoff: () => console.log('Routing to Resume Expert'),
+          toolDescriptionOverride: 'Connect with Resume Expert for resume writing, optimization, and ATS compliance help',
         }),
         handoff(this.interviewCoach, {
-          tool_description: 'Connect with Interview Coach for interview preparation and practice',
-          on_handoff: () => console.log('Routing to Interview Coach'),
+          toolDescriptionOverride: 'Connect with Interview Coach for interview preparation and practice',
         }),
         handoff(this.careerPlanningSpecialist, {
-          tool_description: 'Connect with Career Planning Specialist for career development and transition guidance',
-          on_handoff: () => console.log('Routing to Career Planning Specialist'),
+          toolDescriptionOverride: 'Connect with Career Planning Specialist for career development and transition guidance',
         }),
         handoff(this.jobSearchAdvisor, {
-          tool_description: 'Connect with Job Search Advisor for job search strategies and market navigation',
-          on_handoff: () => console.log('Routing to Job Search Advisor'),
+          toolDescriptionOverride: 'Connect with Job Search Advisor for job search strategies and market navigation',
         }),
       ],
     });

@@ -3,147 +3,29 @@ import { z } from 'zod';
 import type { Session } from 'next-auth';
 import OpenAI from 'openai';
 
-// Weather tool for OpenAI Agent SDK
-export const getWeatherTool = tool({
-  name: 'get_weather',
-  description: 'Get current weather information for a specific location',
-  parameters: z.object({
-    location: z.string().describe('The location to get weather for'),
-  }),
-  execute: async ({ location }: { location: string }) => {
-    // Dynamic import to avoid server-only bundling
-    const { getWeather } = await import('./get-weather');
-    const weatherTool = getWeather;
+// // Weather tool for OpenAI Agent SDK
+// export const getWeatherTool = tool({
+//   name: 'get_weather',
+//   description: 'Get current weather information for a specific location',
+//   parameters: z.object({
+//     location: z.string().describe('The location to get weather for'),
+//   }),
+//   execute: async ({ location }: { location: string }) => {
+//     // Dynamic import to avoid server-only bundling
+//     const { getWeather } = await import('./get-weather');
+//     const weatherTool = getWeather;
     
-    // Execute the original tool logic with proper typing
-    if (!weatherTool.execute) {
-      throw new Error('Weather tool execute function not found');
-    }
+//     // Execute the original tool logic with proper typing
+//     if (!weatherTool.execute) {
+//       throw new Error('Weather tool execute function not found');
+//     }
     
-    const result = await weatherTool.execute({ location }, {} as any);
-    return result;
-  },
-});
+//     const result = await weatherTool.execute({ location }, {} as any);
+//     return result;
+//   },
+// });
 
-// Document creation tool for OpenAI Agent SDK
-export function createDocumentTool({ session }: { session: Session }) {
-  return tool({
-    name: 'create_document',
-    description: 'Create a new document with specified content and metadata',
-    parameters: z.object({
-      title: z.string().describe('The title of the document'),
-      kind: z.enum(['text', 'code', 'markdown']).describe('The type of document to create'),
-    }),
-    execute: async ({ title, kind }: { title: string; kind: 'text' | 'code' | 'markdown' }) => {
-      try {
-        // We need to return a special format that tells the frontend to create a document
-        // This will be caught by the streaming handler and converted to the appropriate data stream messages
-        return {
-          action: 'create_document',
-          title,
-          kind,
-          id: crypto.randomUUID(),
-          success: true,
-          message: `Creating ${kind} document: "${title}"`,
-        };
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-          message: 'Failed to create document',
-        };
-      }
-    },
-  });
-}
-
-// Document update tool for OpenAI Agent SDK
-export function updateDocumentTool({ session }: { session: Session }) {
-  return tool({
-    name: 'update_document',
-    description: 'Update an existing document with new content',
-    parameters: z.object({
-      documentId: z.string().describe('The ID of the document to update'),
-      content: z.string().describe('The new content for the document'),
-      title: z.string().nullable().describe('New title for the document (null if not changing title)'),
-    }),
-    execute: async ({ documentId, content, title }: { documentId: string; content: string; title: string | null }) => {
-      try {
-        // Return a special format that tells the frontend to update a document
-        return {
-          action: 'update_document',
-          documentId,
-          content,
-          title,
-          success: true,
-          message: `Updating document${title ? ` with new title: "${title}"` : ''}`,
-        };
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-          message: 'Failed to update document',
-        };
-      }
-    },
-  });
-}
-
-// Suggestions request tool for OpenAI Agent SDK
-export function requestSuggestionsTool({ session }: { session: Session }) {
-  return tool({
-    name: 'request_suggestions',
-    description: 'Request suggestions for improving or continuing content',
-    parameters: z.object({
-      documentId: z.string().describe('The ID of the document to get suggestions for'),
-      currentContent: z.string().describe('The current content to generate suggestions for'),
-      requestType: z.enum(['improve', 'continue', 'alternatives']).describe('Type of suggestions requested'),
-    }),
-    execute: async ({ documentId, currentContent, requestType }: { documentId: string; currentContent: string; requestType: 'improve' | 'continue' | 'alternatives' }) => {
-      try {
-        // Dynamic import
-        const { requestSuggestions } = await import('./request-suggestions');
-        const suggestionsTool = requestSuggestions({ 
-          session, 
-          dataStream: {
-            writeData: () => {}, // Mock data stream for now
-          } as any 
-        });
-        
-        if (!suggestionsTool.execute) {
-          throw new Error('Suggestions tool execute function not found');
-        }
-        
-        const result = await suggestionsTool.execute({ 
-          documentId, 
-          currentContent,
-          requestType 
-        }, {} as any);
-        
-        // Handle the result properly based on its type
-        if (typeof result === 'object' && result !== null && 'suggestions' in result) {
-          return {
-            success: true,
-            suggestions: (result as any).suggestions,
-            message: `Generated ${requestType} suggestions for the document`,
-          };
-        } else {
-          return {
-            success: true,
-            suggestions: result,
-            message: `Generated ${requestType} suggestions for the document`,
-          };
-        }
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-          message: 'Failed to generate suggestions',
-        };
-      }
-    },
-  });
-}
+// Document creation and update tools removed - using basic chat functionality only
 
 // Career counseling tool for OpenAI Agent SDK
 export function careerCounselingTool({ session, chatId }: { session: Session; chatId: string }) {
@@ -314,7 +196,7 @@ export function createFileAnalysisTool() {
         }
 
         // Prepare the API call based on file type
-        let response;
+        let response: any;
         
         if (isPDF) {
           // For PDFs, we need to fetch the file and convert to base64 since URLs aren't supported

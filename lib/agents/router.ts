@@ -29,7 +29,6 @@ export class CareerCounselingRouter {
         name: agentConfig.name,
         model: agentConfig.model,
         instructions: agentConfig.instructions,
-        client: this.openai,
         // No tools needed for these specialist agents - they focus on conversation
       });
 

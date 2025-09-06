@@ -29,6 +29,7 @@ import type { VisibilityType } from '@/components/visibility-selector';
 
 export const maxDuration = 60;
 
+
 let globalStreamContext: ResumableStreamContext | null = null;
 
 export function getStreamContext() {
@@ -98,9 +99,22 @@ export async function POST(request: Request) {
 
     const chat = await getChatById({ id });
 
+    console.log('chat message', message);
+
     if (!chat) {
+      // Convert ChatMessage to UIMessage format expected by generateTitleFromUserMessage
+      const uiMessage = {
+        role: message.role,
+        content: Array.isArray(message.parts) 
+          ? message.parts.filter(part => part.type === 'text').map(part => (part as any).text).join(' ')
+          : (message as any).content || '',
+        parts: Array.isArray(message.parts) 
+          ? message.parts.filter(part => part.type === 'text').map(part => ({ type: 'text', text: (part as any).text }))
+          : undefined,
+      };
+      
       const title = await generateTitleFromUserMessage({
-        message,
+        message: uiMessage,
       });
 
       await saveChat({
@@ -162,34 +176,32 @@ export async function POST(request: Request) {
     
     // Check if this message contains analyzable files (images, PDFs, or documents)
     const hasAnalyzableFiles = Array.isArray(lastMessage.parts) && 
-      lastMessage.parts.some(part => 
-        part.type === 'image' || 
-        (part.type === 'file' && part.mediaType && (
+      lastMessage.parts.some((part: any) => 
+        part.type === 'file' && part.mediaType && (
           part.mediaType.startsWith('image/') || 
           part.mediaType === 'application/pdf' ||
           part.mediaType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-        ))
+        )
       );
 
     // Enhanced message content for triage agent with file attachment context
     let triageMessageContent = '';
     if (Array.isArray(lastMessage.parts)) {
-      const textParts = lastMessage.parts.filter(part => part.type === 'text');
-      const fileParts = lastMessage.parts.filter(part => 
-        part.type === 'image' || 
-        (part.type === 'file' && part.mediaType && (
+      const textParts = lastMessage.parts.filter((part: any) => part.type === 'text');
+      const fileParts = lastMessage.parts.filter((part: any) => 
+        part.type === 'file' && part.mediaType && (
           part.mediaType.startsWith('image/') || 
           part.mediaType === 'application/pdf' ||
           part.mediaType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-        ))
+        )
       );
       
-      triageMessageContent = textParts.map(part => part.text).join(' ') || '';
+      triageMessageContent = textParts.map((part: any) => part.text).join(' ') || '';
       
       // Add file attachment context for better routing
       if (fileParts.length > 0) {
         triageMessageContent += `\n\n📎 **ATTACHED FILES:** `;
-        fileParts.forEach((filePart, index) => {
+        fileParts.forEach((filePart: any, index: number) => {
           const fileName = filePart.name || 'unknown';
           const mediaType = filePart.mediaType || 'unknown';
           triageMessageContent += `\n${index + 1}. "${fileName}" (${mediaType})`;
@@ -204,7 +216,7 @@ export async function POST(request: Request) {
         triageMessageContent += `\n\n⚡ **ROUTING HINT:** File attachments detected - likely requires Resume Expert for document analysis.`;
       }
     } else {
-      triageMessageContent = String(lastMessage.content || 'Hello');
+      triageMessageContent = String((lastMessage as any).content || 'Hello');
     }
       
     const { agent: startingAgent } = await careerCounselingSystem.handleConversation(
@@ -218,18 +230,17 @@ export async function POST(request: Request) {
     
     if (hasAnalyzableFiles && Array.isArray(lastMessage.parts)) {
       // Extract file URLs and text from the message
-      const textParts = lastMessage.parts.filter(part => part.type === 'text');
-      const fileParts = lastMessage.parts.filter(part => 
-        part.type === 'image' || 
-        (part.type === 'file' && part.mediaType && (
+      const textParts = lastMessage.parts.filter((part: any) => part.type === 'text');
+      const fileParts = lastMessage.parts.filter((part: any) => 
+        part.type === 'file' && part.mediaType && (
           part.mediaType.startsWith('image/') || 
           part.mediaType === 'application/pdf' ||
           part.mediaType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-        ))
+        )
       );
       
       // Get the user's text query
-      const textQuery = textParts.map(part => part.text).join(' ') || 'Please analyze this file';
+      const textQuery = textParts.map((part: any) => part.text).join(' ') || 'Please analyze this file';
       
       // Get the first file URL (support multiple files later)
       // Handle different possible file part structures
@@ -238,16 +249,16 @@ export async function POST(request: Request) {
       
       if (filePart) {
         // Handle different file part structures
-        if (filePart.type === 'file' && filePart.url) {
+        if (filePart.type === 'file' && (filePart as any).url) {
           // Handle file type with direct URL (Azure Blob format)
-          fileUrl = filePart.url;
+          fileUrl = (filePart as any).url;
         } else {
           // Try different possible properties where the URL might be stored for other formats
-          fileUrl = filePart.url || 
-                    filePart.image || 
-                    filePart.data ||
-                    filePart.content ||
-                    (filePart.image_url?.url);
+          fileUrl = (filePart as any)?.url || 
+                    (filePart as any)?.image || 
+                    (filePart as any)?.data ||
+                    (filePart as any).content ||
+                    (filePart as any).image_url?.url;
         }
         
         // Debug logging to understand the structure
@@ -266,12 +277,12 @@ export async function POST(request: Request) {
           analysisType = 'text_extraction';
         } else if (queryLower.includes('document') || queryLower.includes('paper') || queryLower.includes('form')) {
           analysisType = 'document_analysis';
-        } else if (filePart?.mediaType === 'application/pdf') {
+        } else if ((filePart as any)?.mediaType === 'application/pdf') {
           analysisType = 'pdf_analysis';
         }
         
         // Create input that will trigger the file analysis tool
-        userInput = `I need you to analyze a file using the file analysis tool. The file URL is: ${fileUrl}. The filename is: "${filePart?.name || 'Unknown'}". The media type is: "${filePart?.mediaType || 'Unknown'}". The user's question is: "${textQuery}". Please use analysis type: ${analysisType}`;
+        userInput = `I need you to analyze a file using the file analysis tool. The file URL is: ${fileUrl}. The filename is: "${(filePart as any)?.name || 'Unknown'}". The media type is: "${(filePart as any)?.mediaType || 'Unknown'}". The user's question is: "${textQuery}". Please use analysis type: ${analysisType}`;
       } else {
         // Fallback if no file URL found - provide more debugging info
         console.warn('No file URL found in file part. File parts:', JSON.stringify(fileParts, null, 2));
@@ -279,8 +290,8 @@ export async function POST(request: Request) {
       }
     } else {
       userInput = Array.isArray(lastMessage.parts) 
-        ? lastMessage.parts.map(part => part.type === 'text' ? part.text : '[file]').join(' ')
-        : String(lastMessage.content || '');
+        ? lastMessage.parts.map((part: any) => part.type === 'text' ? part.text : '[file]').join(' ')
+        : String((lastMessage as any).content || '');
     }
 
     // Get previous conversation history for context (last 15 messages)
@@ -289,8 +300,8 @@ export async function POST(request: Request) {
     // Convert database messages to agent message format using SDK helpers
     const conversationHistory = previousMessages.map(msg => {
       const content = Array.isArray(msg.parts) 
-        ? msg.parts.map(part => part.type === 'text' ? part.text : '[file]').join(' ')
-        : String(msg.content || '');
+        ? msg.parts.map((part: any) => part.type === 'text' ? part.text : '[file]').join(' ')
+        : String((msg as any).content || '');
       
       return msg.role === 'user' ? user(content) : assistant(content);
     });
@@ -301,11 +312,15 @@ export async function POST(request: Request) {
       content: typeof msg.content === 'string' ? `${msg.content.substring(0, 50)}...` : 'complex content'
     })));
     
-    // Run agent with streaming - userInput as 2nd parameter, history in context
-    const result = await run(agent, userInput, { 
+    // Build complete message history: previous messages + current user input
+    const allMessages = conversationHistory.concat([user(String(userInput))]);
+    
+    console.log('Total messages being sent to agent:', allMessages.length);
+    
+    // Run agent with streaming - CORRECT: history as messages array in 2nd parameter
+    const result = await run(agent, allMessages, { 
       stream: true,
       context: {
-        conversationHistory,
         chatId: id,
         session: session,
         requestHints,
@@ -411,21 +426,21 @@ export async function POST(request: Request) {
               console.log('Run item event:', event.item.type);
               
               // Tool calls or other run items
-              if (event.item.type === 'function_call') {
-                console.log('Function call:', event.item.name);
+              if (event.item.type === 'function_call' as any) {
+                console.log('Function call:', (event.item as any).name);
                 safeEnqueue({
                   type: 'tool-call',
-                  toolCallId: event.item.callId,
-                  toolName: event.item.name,
-                  args: JSON.parse(event.item.arguments || '{}'),
+                  toolCallId: (event.item as any).callId,
+                  toolName: (event.item as any).name,
+                  args: JSON.parse((event.item as any).arguments || '{}'),
                 });
               }
               
-              if (event.item.type === 'function_call_result') {
+              if (event.item.type === 'function_call_result' as any) {
                 console.log('Function call result');
                 
                 // Check if this is a document action that needs special handling
-                let toolResult = event.item.output;
+                let toolResult = (event.item as any).output;
                 if (typeof toolResult === 'string') {
                   try {
                     const parsed = JSON.parse(toolResult);
@@ -439,91 +454,12 @@ export async function POST(request: Request) {
                       safeEnqueue({ type: 'data-title', data: parsed.title, transient: true });
                       safeEnqueue({ type: 'data-clear', data: null, transient: true });
                       
-                      // Now we need to trigger the actual document creation with the real dataStream
-                      try {
-                        const { createDocument } = await import('@/lib/ai/tools/create-document');
-                        const { documentHandlersByArtifactKind } = await import('@/lib/artifacts/server');
-                        
-                        // Create a mock dataStream that writes to our controller
-                        const mockDataStream = {
-                          write: (message: any) => {
-                            console.log('Mock dataStream write:', message);
-                            if (message.type?.startsWith('data-')) {
-                              safeEnqueue(message);
-                            }
-                          }
-                        };
-                        
-                        // Find the document handler
-                        const documentHandler = documentHandlersByArtifactKind.find(
-                          (handler) => handler.kind === parsed.kind
-                        );
-                        
-                        if (documentHandler) {
-                          await documentHandler.onCreateDocument({
-                            id: parsed.id,
-                            title: parsed.title,
-                            dataStream: mockDataStream as any,
-                            session: session,
-                          });
-                        }
-                        
-                        safeEnqueue({ type: 'data-finish', data: null, transient: true });
-                        
-                        // Update the tool result to indicate success
-                        toolResult = JSON.stringify({
-                          ...parsed,
-                          message: `Created ${parsed.kind} document: "${parsed.title}" - now visible to the user`
-                        });
-                      } catch (docError) {
-                        console.error('Error creating document:', docError);
-                        toolResult = JSON.stringify({
-                          ...parsed,
-                          success: false,
-                          error: docError.message,
-                          message: `Failed to create document: ${docError.message}`
-                        });
-                      }
+                 
                     } else if (parsed.action === 'update_document') {
                       // Handle document update - send appropriate update messages
                       console.log('Handling document update action:', parsed);
                       
-                      try {
-                        const { updateDocument } = await import('@/lib/ai/tools/update-document');
-                        
-                        const mockDataStream = {
-                          write: (message: any) => {
-                            console.log('Mock dataStream write:', message);
-                            if (message.type?.startsWith('data-')) {
-                              safeEnqueue(message);
-                            }
-                          }
-                        };
-                        
-                        const documentTool = updateDocument({ 
-                          session: session, 
-                          dataStream: mockDataStream as any 
-                        });
-                        
-                        await documentTool.execute({ 
-                          documentId: parsed.documentId, 
-                          content: parsed.content,
-                          ...(parsed.title && { title: parsed.title })
-                        });
-                        
-                        toolResult = JSON.stringify({
-                          ...parsed,
-                          message: `Updated document successfully`
-                        });
-                      } catch (updateError) {
-                        console.error('Error updating document:', updateError);
-                        toolResult = JSON.stringify({
-                          ...parsed,
-                          success: false,
-                          error: updateError.message,
-                          message: `Failed to update document: ${updateError.message}`
-                        });
-                      }
+                   
                     }
                   } catch (parseError) {
                     // Not JSON or not a special action, proceed normally
@@ -532,7 +468,7 @@ export async function POST(request: Request) {
                 
                 safeEnqueue({
                   type: 'tool-result',
-                  toolCallId: event.item.callId,
+                  toolCallId: (event.item as any).callId,
                   result: toolResult,
                 });
               }

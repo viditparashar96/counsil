@@ -2,7 +2,6 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { memo, useState } from 'react';
 import type { Vote } from '@/lib/db/schema';
-import { DocumentToolResult } from './document';
 import { PencilEditIcon, SparklesIcon, } from './icons';
 import { Response } from './elements/response';
 import { MessageContent } from './elements/message';
@@ -21,7 +20,6 @@ import { cn, sanitizeText } from '@/lib/utils';
 import { Button } from './ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { MessageEditor } from './message-editor';
-import { DocumentPreview } from './document-preview';
 import { MessageReasoning } from './message-reasoning';
 import type { UseChatHelpers } from '@ai-sdk/react';
 import type { ChatMessage } from '@/lib/types';
@@ -39,7 +37,6 @@ const PurePreviewMessage = ({
   regenerate,
   isReadonly,
   requiresScrollPadding,
-  isArtifactVisible,
 }: {
   chatId: string;
   message: ChatMessage;
@@ -49,7 +46,6 @@ const PurePreviewMessage = ({
   regenerate: UseChatHelpers<ChatMessage>['regenerate'];
   isReadonly: boolean;
   requiresScrollPadding: boolean;
-  isArtifactVisible: boolean;
 }) => {
   const [mode, setMode] = useState<'view' | 'edit'>('view');
 
@@ -199,155 +195,7 @@ const PurePreviewMessage = ({
                 );
               }
 
-              if (type === 'tool-createDocument') {
-                const { toolCallId } = part;
-
-                if (part.output && 'error' in part.output) {
-                  return (
-                    <div
-                      key={toolCallId}
-                      className="p-4 text-red-500 bg-red-50 rounded-lg border border-red-200 dark:bg-red-950/50"
-                    >
-                      Error creating document: {String(part.output.error)}
-                    </div>
-                  );
-                }
-
-                return (
-                  <DocumentPreview
-                    key={toolCallId}
-                    isReadonly={isReadonly}
-                    result={part.output}
-                  />
-                );
-              }
-
-              if (type === 'tool-updateDocument') {
-                const { toolCallId } = part;
-
-                if (part.output && 'error' in part.output) {
-                  return (
-                    <div
-                      key={toolCallId}
-                      className="p-4 text-red-500 bg-red-50 rounded-lg border border-red-200 dark:bg-red-950/50"
-                    >
-                      Error updating document: {String(part.output.error)}
-                    </div>
-                  );
-                }
-
-                return (
-                  <div key={toolCallId} className="relative">
-                    <DocumentPreview
-                      isReadonly={isReadonly}
-                      result={part.output}
-                      args={{ ...part.output, isUpdate: true }}
-                    />
-                  </div>
-                );
-              }
-
-              if (type === 'tool-requestSuggestions') {
-                const { toolCallId, state } = part;
-
-                return (
-                  <Tool key={toolCallId} defaultOpen={true}>
-                    <ToolHeader type="tool-requestSuggestions" state={state} />
-                    <ToolContent>
-                      {state === 'input-available' && (
-                        <ToolInput input={part.input} />
-                      )}
-                      {state === 'output-available' && (
-                        <ToolOutput
-                          output={
-                            'error' in part.output ? (
-                              <div className="p-2 text-red-500 rounded border">
-                                Error: {String(part.output.error)}
-                              </div>
-                            ) : (
-                              <DocumentToolResult
-                                type="request-suggestions"
-                                result={part.output}
-                                isReadonly={isReadonly}
-                              />
-                            )
-                          }
-                          errorText={undefined}
-                        />
-                      )}
-                    </ToolContent>
-                  </Tool>
-                );
-              }
-
-              if (type === 'tool-careerCounseling') {
-                const { toolCallId, state } = part;
-
-                return (
-                  <Tool key={toolCallId} defaultOpen={true}>
-                    <ToolHeader type="tool-careerCounseling" state={state} />
-                    <ToolContent>
-                      {state === 'input-available' && (
-                        <ToolInput input={part.input} />
-                      )}
-                      {state === 'output-available' && (
-                        <ToolOutput
-                          output={
-                            'error' in part.output ? (
-                              <div className="p-2 text-red-500 rounded border">
-                                Error: {String(part.output.error)}
-                              </div>
-                            ) : (
-                              <DocumentToolResult
-                                type="career-counseling"
-                                result={part.output}
-                                isReadonly={isReadonly}
-                              />
-                            )
-                          }
-                          errorText={undefined}
-                        />
-                      )}
-                    </ToolContent>
-                  </Tool>
-                );
-              }
-
-              if (type === 'tool-createImageAnalysisTool') {
-                const { toolCallId, state } = part;
-
-                return (
-                  <Tool key={toolCallId} defaultOpen={true}>
-                    <ToolHeader type="tool-createImageAnalysisTool" state={state} />
-                    <ToolContent>
-                      {state === 'input-available' && (
-                        <ToolInput input={part.input} />
-                      )}
-                      {state === 'output-available' && (
-                        <ToolOutput
-                          output={
-                            'error' in part.output ? (
-                              <div className="p-2 text-red-500 rounded border">
-                                Error: {String(part.output.error)}
-                              </div>
-                            ) : (
-                              <div className="p-4 bg-blue-50 rounded-lg border border-blue-200 dark:bg-blue-950/50">
-                                <h4 className="font-semibold text-blue-900 dark:text-blue-100 mb-2">
-                                  🖼️ Image Analysis ({part.output.analysisType || 'general'})
-                                </h4>
-                                <div className="text-sm text-blue-800 dark:text-blue-200 whitespace-pre-wrap">
-                                  {part.output.analysis || part.output.message}
-                                </div>
-                              </div>
-                            )
-                          }
-                          errorText={undefined}
-                        />
-                      )}
-                    </ToolContent>
-                  </Tool>
-                );
-              }
+            
             })}
 
             {!isReadonly && (

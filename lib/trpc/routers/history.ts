@@ -28,16 +28,22 @@ export const historyRouter = createTRPCRouter({
         endingBefore: cursor || null,
       });
 
-      // Separate the actual chats from the cursor check
-      const hasNextPage = (result as any[]).length > limit;
-      const chats = hasNextPage ? (result as any[]).slice(0, -1) : result;
-      const nextCursor = hasNextPage ? chats[chats.length - 1]?.id : undefined;
+
+      
+      const { chats, hasMore } = await getChatsByUserId({
+        id: targetUserId,
+        limit,
+        startingAfter: null,
+        endingBefore: cursor || null,
+      });
+      const hasNextPage = hasMore;
+
 
       return {
         chats,
-        nextCursor,
+        nextCursor: hasMore ? chats[chats.length - 1]?.id : undefined,
         hasNextPage,
-        totalCount: chats.length,
+        totalCount: chats.length || 0,
       };
     }),
     

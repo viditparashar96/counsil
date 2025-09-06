@@ -20,28 +20,24 @@ When users ask career-related questions, automatically route them to the appropr
 
 For general questions, respond directly and helpfully.`,
     model: 'gpt-4o',
-    client: openaiClient,
   }),
 
   'chat-model-reasoning': new Agent({
     name: 'Reasoning Assistant', 
     instructions: 'You are a helpful assistant that thinks step by step. Use <think> tags to show your reasoning process.',
     model: 'gpt-4o',
-    client: openaiClient,
   }),
 
   'title-model': new Agent({
     name: 'Title Generator',
     instructions: 'Generate concise, descriptive titles for conversations. Keep them under 6 words.',
     model: 'gpt-4o-mini',
-    client: openaiClient,
   }),
 
   'artifact-model': new Agent({
     name: 'Artifact Creator',
     instructions: 'Create and modify documents, code, and other artifacts based on user requests.',
     model: 'gpt-4o',
-    client: openaiClient,
   }),
 };
 
@@ -52,7 +48,7 @@ export async function runAgentWithStreaming(
   tools: any[] = [],
   systemPrompt?: string
 ) {
-  const agent = careerAgents[agentKey];
+  const agent:any = careerAgents[agentKey];
   
   if (!agent) {
     throw new Error(`Agent ${agentKey} not found`);
@@ -146,18 +142,18 @@ export const myProvider = {
     agent: careerAgents[modelId],
     // Compatibility methods for existing code
     generateText: async (options: any) => {
-      const result = await runAgentWithStreaming(modelId, options.messages, options.tools, options.system);
+      const result:any = await runAgentWithStreaming(modelId, options.messages, options.tools, options.system);
       await result.completed;
       return {
         text: result.finalOutput || '',
-        usage: result.state.usage || {},
+        usage: result.state.usage || {} as any,
       };
     },
     streamText: async (options: any) => {
-      const result = await runAgentWithStreaming(modelId, options.messages, options.tools, options.system);
+      const result:any = await runAgentWithStreaming(modelId, options.messages, options.tools, options.system);
       return {
         stream: convertAgentStreamToUIStream(result),
-        usage: result.state.usage || {},
+        usage: result.state.usage || {} as any,
       };
     }
   })

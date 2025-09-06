@@ -1,96 +1,96 @@
-import { z } from 'zod';
-import type { Session } from 'next-auth';
-import { streamObject, tool, type UIMessageStreamWriter } from 'ai';
-import { getDocumentById, saveSuggestions } from '@/lib/db/queries';
-import type { Suggestion } from '@/lib/db/schema';
-import { generateUUID } from '@/lib/utils';
-import { myProvider } from '../providers';
-import type { ChatMessage } from '@/lib/types';
-import type { LanguageModel } from 'ai';
+// import { z } from 'zod';
+// import type { Session } from 'next-auth';
+// import { streamObject, tool, type UIMessageStreamWriter } from 'ai';
+// import { getDocumentById, saveSuggestions } from '@/lib/db/queries';
+// import type { Suggestion } from '@/lib/db/schema';
+// import { generateUUID } from '@/lib/utils';
+// import { myProvider } from '../providers';
+// import type { ChatMessage } from '@/lib/types';
+// import type { LanguageModel } from 'ai';
 
-interface RequestSuggestionsProps {
-  session: Session;
-  dataStream: UIMessageStreamWriter<ChatMessage>;
-}
+// interface RequestSuggestionsProps {
+//   session: Session;
+//   dataStream: UIMessageStreamWriter<ChatMessage>;
+// }
 
-export const requestSuggestions = ({
-  session,
-  dataStream,
-}: RequestSuggestionsProps) =>
-  tool({
-    description: 'Request suggestions for a document',
-    inputSchema: z.object({
-      documentId: z
-        .string()
-        .describe('The ID of the document to request edits'),
-    }),
-    execute: async ({ documentId }: { documentId: string }) => {
-      const document = await getDocumentById({ id: documentId });
+// // export const requestSuggestions = ({
+// //   session,
+// //   dataStream,
+// // }: RequestSuggestionsProps) =>
+// //   tool({
+// //     description: 'Request suggestions for a document',
+// //     inputSchema: z.object({
+// //       documentId: z
+// //         .string()
+// //         .describe('The ID of the document to request edits'),
+// //     }),
+// //     execute: async ({ documentId }: { documentId: string }) => {
+// //       const document = await getDocumentById({ id: documentId });
 
-      if (!document || !document.content) {
-        return {
-          error: 'Document not found',
-        };
-      }
+// //       if (!document || !document.content) {
+// //         return {
+// //           error: 'Document not found',
+// //         };
+// //       }
 
-      const suggestions: Array<
-        Omit<Suggestion, 'userId' | 'createdAt' | 'documentCreatedAt'>
-      > = [];
+// //       const suggestions: Array<
+// //         Omit<Suggestion, 'userId' | 'createdAt' | 'documentCreatedAt'>
+// //       > = [];
 
-      // Cast to LanguageModel to fix typing issues
-      const model = myProvider.languageModel('artifact-model') as LanguageModel;
+// //       // Cast to LanguageModel to fix typing issues
+// //       const model = myProvider.languageModel('artifact-model') as LanguageModel;
 
-      const { elementStream } = streamObject({
-        model: model,
-        system:
-          'You are a help writing assistant. Given a piece of writing, please offer suggestions to improve the piece of writing and describe the change. It is very important for the edits to contain full sentences instead of just words. Max 5 suggestions.',
-        prompt: document.content,
-        output: 'array',
-        schema: z.object({
-          originalSentence: z.string().describe('The original sentence'),
-          suggestedSentence: z.string().describe('The suggested sentence'),
-          description: z.string().describe('The description of the suggestion'),
-        }),
-      });
+// //       const { elementStream } = streamObject({
+// //         model: model,
+// //         system:
+// //           'You are a help writing assistant. Given a piece of writing, please offer suggestions to improve the piece of writing and describe the change. It is very important for the edits to contain full sentences instead of just words. Max 5 suggestions.',
+// //         prompt: document.content,
+// //         output: 'array',
+// //         schema: z.object({
+// //           originalSentence: z.string().describe('The original sentence'),
+// //           suggestedSentence: z.string().describe('The suggested sentence'),
+// //           description: z.string().describe('The description of the suggestion'),
+// //         }),
+// //       });
 
-      for await (const element of elementStream) {
-        const suggestion: Suggestion = {
-          originalText: element.originalSentence,
-          suggestedText: element.suggestedSentence,
-          description: element.description,
-          id: generateUUID(),
-          documentId: documentId,
-          userId: session.user?.id || '',
-          createdAt: new Date(),
-          documentCreatedAt: document.createdAt,
-        };
+// //       for await (const element of elementStream) {
+// //         const suggestion: Suggestion = {
+// //           originalText: element.originalSentence,
+// //           suggestedText: element.suggestedSentence,
+// //           description: element.description,
+// //           id: generateUUID(),
+// //           documentId: documentId,
+// //           userId: session.user?.id || '',
+// //           createdAt: new Date(),
+// //           documentCreatedAt: document.createdAt,
+// //         };
 
-        suggestions.push(suggestion);
+// //         suggestions.push(suggestion);
 
-        dataStream.writeStreamData({
-          type: 'suggestion',
-          suggestion,
-        });
-      }
+// //         dataStream.writeStreamData({
+// //           type: 'suggestion',
+// //           suggestion,
+// //         });
+// //       }
 
-      await saveSuggestions({
-        suggestions: suggestions.map((suggestion) => ({
-          originalText: suggestion.originalText,
-          suggestedText: suggestion.suggestedText,
-          description: suggestion.description,
-          id: suggestion.id,
-          documentId: suggestion.documentId,
-          userId: suggestion.userId,
-        })),
-      });
+// //       await saveSuggestions({
+// //         suggestions: suggestions.map((suggestion) => ({
+// //           originalText: suggestion.originalText,
+// //           suggestedText: suggestion.suggestedText,
+// //           description: suggestion.description,
+// //           id: suggestion.id,
+// //           documentId: suggestion.documentId,
+// //           userId: suggestion.userId,
+// //         })),
+// //       });
 
-      dataStream.writeStreamData({
-        type: 'suggestions-finish',
-        suggestions: suggestions,
-      });
+// //       dataStream.writeStreamData({
+// //         type: 'suggestions-finish',
+// //         suggestions: suggestions,
+// //       });
 
-      return {
-        suggestions,
-      };
-    },
-  });
+// //       return {
+// //         suggestions,
+// //       };
+// //     },
+// //   });

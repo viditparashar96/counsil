@@ -2,7 +2,6 @@ import { createTRPCRouter } from '../init';
 import { chatRouter } from './chat';
 import { historyRouter } from './history';
 import { voteRouter } from './vote';
-import { documentRouter } from './document';
 import { suggestionsRouter } from './suggestions';
 import { uploadRouter } from './upload';
 import { agentsRouter } from './agents';
@@ -16,7 +15,6 @@ export const appRouter = createTRPCRouter({
   chat: chatRouter,
   history: historyRouter,
   vote: voteRouter,
-  document: documentRouter,
   suggestions: suggestionsRouter,
   upload: uploadRouter,
   agents: agentsRouter,

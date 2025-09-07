@@ -14,9 +14,8 @@ if (typeof window === 'undefined') {
 }
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://chat.vercel.ai'),
-  title: 'Next.js Chatbot Template',
-  description: 'Next.js chatbot template using the AI SDK.',
+  title: 'Career Counseling Chatbot',
+  description: 'Career Counseling Chatbot',
 };
 
 export const viewport = {

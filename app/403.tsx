@@ -7,7 +7,7 @@ export default function ForbiddenPage() {
         <h1 className="text-6xl font-bold text-muted-foreground">403</h1>
         <h2 className="text-2xl font-semibold">Access Forbidden</h2>
         <p className="text-muted-foreground max-w-md">
-          You don't have permission to access this private chat.
+          You don&apos;t have permission to access this private chat.
         </p>
         <Link
           href="/"

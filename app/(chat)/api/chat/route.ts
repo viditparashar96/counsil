@@ -102,7 +102,18 @@ export async function POST(request: Request) {
     console.log('chat message', message);
 
     if (!chat) {
-      // Convert ChatMessage to UIMessage format expected by generateTitleFromUserMessage
+      // Save chat immediately with a temporary title to avoid race conditions
+      // Title generation is slow (AI call) so we do it asynchronously
+      const tempTitle = 'New Chat';
+      
+      await saveChat({
+        id,
+        userId: session.user.id,
+        title: tempTitle,
+        visibility: selectedVisibilityType,
+      });
+
+      // Generate proper title asynchronously (don't await this)
       const uiMessage = {
         role: message.role,
         content: Array.isArray(message.parts) 
@@ -113,16 +124,21 @@ export async function POST(request: Request) {
           : undefined,
       };
       
-      const title = await generateTitleFromUserMessage({
-        message: uiMessage,
-      });
-
-      await saveChat({
-        id,
-        userId: session.user.id,
-        title,
-        visibility: selectedVisibilityType,
-      });
+      // Generate title in background and update chat
+      generateTitleFromUserMessage({ message: uiMessage })
+        .then(async (generatedTitle) => {
+          const { updateChatTitle } = await import('@/lib/db/queries');
+          await updateChatTitle({ id, title: generatedTitle });
+          
+          // Trigger a background fetch to update caches with new title
+          // Don't await this to avoid slowing down the response
+          fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/history?limit=20`)
+            .catch(() => {}); // Ignore errors from cache refresh
+        })
+        .catch((error) => {
+          console.error('Failed to generate/update chat title:', error);
+          // Keep the temporary title if generation fails
+        });
     } else {
       if (chat.userId !== session.user.id) {
         return new ChatSDKError('forbidden:chat').toResponse();

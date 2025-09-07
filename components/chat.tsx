@@ -12,13 +12,13 @@ import { toast } from './toast';
 import type { Session } from 'next-auth';
 import { useSearchParams } from 'next/navigation';
 import { useChatVisibility } from '@/hooks/use-chat-visibility';
-import { useAutoResume } from '@/hooks/use-auto-resume';
 import { ChatSDKError } from '@/lib/errors';
 import type { Attachment, ChatMessage } from '@/lib/types';
 import { useDataStream } from './data-stream-provider';
 import { api } from '@/lib/trpc';
 import { useAgentHandoffs } from '@/hooks/use-agent-handoffs';
 import { AgentHandoffBanner } from './agent-handoff-banner';
+import { mutate } from 'swr';
 // Removed: explicit top loader chip; we use gradient bar as the loader now
 
 export function Chat({
@@ -28,7 +28,6 @@ export function Chat({
   initialVisibilityType,
   isReadonly,
   session,
-  autoResume,
 }: {
   id: string;
   initialMessages: ChatMessage[];
@@ -36,7 +35,6 @@ export function Chat({
   initialVisibilityType: VisibilityType;
   isReadonly: boolean;
   session: Session;
-  autoResume: boolean;
 }) {
   const { visibilityType } = useChatVisibility({
     chatId: id,
@@ -101,8 +99,20 @@ export function Chat({
       }
     },
     onFinish: () => {
-      // Invalidate chat history to show the new message
+      // Invalidate tRPC chat history to show the new message
       utils.history.getChats.invalidate();
+      // Invalidate chat messages to ensure fresh data
+      utils.chat.getMessages.invalidate({ chatId: id });
+      
+      // Immediately invalidate SWR cache for sidebar history
+      // Target the first page specifically since new chats appear at the top
+      mutate(`/api/history?limit=20`, undefined, { revalidate: true });
+      // Clear other history pages cache (they'll refetch if accessed)
+      mutate(
+        key => typeof key === 'string' && key.includes('/api/history') && key !== `/api/history?limit=20`,
+        undefined,
+        { revalidate: false }
+      );
     },
     onError: (error) => {
       if (error instanceof ChatSDKError) {
@@ -143,14 +153,24 @@ export function Chat({
 
   const [attachments, setAttachments] = useState<Array<Attachment>>([]);
 
+  // Force sidebar refresh when this chat component mounts
+  // This ensures new chats appear immediately in the sidebar
+  useEffect(() => {
+    // Small delay to ensure the chat has been saved to the database
+    const timeoutId = setTimeout(() => {
+      // More specific invalidation - target the first page which is where new chats appear
+      mutate(`/api/history?limit=20`, undefined, { revalidate: true });
+      // Also invalidate any other history pages
+      mutate(
+        key => typeof key === 'string' && key.includes('/api/history'),
+        undefined,
+        { revalidate: false } // Don't revalidate all pages, just clear them
+      );
+    }, 500); // Reduced delay for faster updates
 
+    return () => clearTimeout(timeoutId);
+  }, [id]); // Re-run when chat ID changes
 
-  useAutoResume({
-    autoResume,
-    initialMessages,
-    resumeStream,
-    setMessages,
-  });
 
   return (
     <>

@@ -22,11 +22,6 @@ For general questions, respond directly and helpfully.`,
     model: 'gpt-4o',
   }),
 
-  'chat-model-reasoning': new Agent({
-    name: 'Reasoning Assistant', 
-    instructions: 'You are a helpful assistant that thinks step by step. Use <think> tags to show your reasoning process.',
-    model: 'gpt-4o',
-  }),
 
   'title-model': new Agent({
     name: 'Title Generator',
@@ -40,6 +35,7 @@ For general questions, respond directly and helpfully.`,
     model: 'gpt-4o',
   }),
 };
+
 
 // Agent runner function that replaces streamText
 export async function runAgentWithStreaming(

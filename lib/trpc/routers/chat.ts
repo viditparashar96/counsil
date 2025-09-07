@@ -27,7 +27,8 @@ export const chatRouter = createTRPCRouter({
         });
       }
 
-      if (chat.userId !== userId) {
+      // Allow access to public chats or user's own chats
+      if (chat.visibility === 'private' && chat.userId !== userId) {
         throw new TRPCError({
           code: 'FORBIDDEN',
           message: 'You do not have permission to access this chat',
@@ -35,6 +36,38 @@ export const chatRouter = createTRPCRouter({
       }
 
       return chat;
+    }),
+
+  getMessages: protectedProcedure
+    .input(
+      z.object({
+        chatId: z.string().uuid(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const { chatId } = input;
+      const userId = ctx.session.user.id;
+
+      const { getChatById, getMessagesByChatId } = await import('@/lib/db/queries');
+      const chat = await getChatById({ id: chatId });
+
+      if (!chat) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Chat not found',
+        });
+      }
+
+      // Allow access to public chats or user's own chats
+      if (chat.visibility === 'private' && chat.userId !== userId) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'You do not have permission to access this chat',
+        });
+      }
+
+      const messages = await getMessagesByChatId({ id: chatId });
+      return messages;
     }),
 
   deleteChat: protectedProcedure

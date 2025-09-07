@@ -105,6 +105,23 @@ export async function saveChat({
   }
 }
 
+export async function updateChatTitle({
+  id,
+  title,
+}: {
+  id: string;
+  title: string;
+}) {
+  try {
+    return await db
+      .update(chat)
+      .set({ title })
+      .where(eq(chat.id, id));
+  } catch (error) {
+    throw new ChatSDKError('bad_request:database', 'Failed to update chat title');
+  }
+}
+
 export async function deleteChatById({ id }: { id: string }) {
   try {
     await db.delete(vote).where(eq(vote.chatId, id));

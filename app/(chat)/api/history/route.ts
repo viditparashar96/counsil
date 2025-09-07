@@ -23,12 +23,12 @@ export async function GET(request: NextRequest) {
     return new ChatSDKError('unauthorized:chat').toResponse();
   }
 
-  const chats = await getChatsByUserId({
+  const result = await getChatsByUserId({
     id: session.user.id,
     limit,
     startingAfter,
     endingBefore,
   });
 
-  return Response.json(chats);
+  return Response.json(result);
 }

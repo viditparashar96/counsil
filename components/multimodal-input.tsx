@@ -481,7 +481,7 @@ function PureMultimodalInput({
             )}
           </PromptInputTools>
 
-          {status === 'submitted' ? (
+          {(status === 'submitted' || status === 'streaming') ? (
             <StopButton stop={stop} setMessages={setMessages} />
           ) : isRecording ? (
             // While recording, replace send with a stop-recording control

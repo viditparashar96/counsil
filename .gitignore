@@ -42,6 +42,4 @@ yarn-error.log*
 /blob-report/
 /playwright/*
 
-
-/.claude
-/.cloud
+.claude/
